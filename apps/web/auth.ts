@@ -26,8 +26,12 @@ if (process.env.APPLE_CLIENT_ID && process.env.APPLE_CLIENT_SECRET) {
   )
 }
 
+const trustHost =
+  process.env.AUTH_TRUST_HOST === "true" || process.env.NODE_ENV === "production"
+
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers,
+  trustHost,
   callbacks: {
     async jwt({ token, account, profile }) {
       const t = token as any
