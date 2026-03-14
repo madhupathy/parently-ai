@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.sqlite3
+*.db
+.venv/
+.env
+.env.*
+.env.local
+*.log
+
+# Node
+node_modules/
+.next/
+dist/
+.out/
+.vercel/
+
+# macOS/Linux
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Coverage / Test
+htmlcov/
+.coverage
+.pytest_cache/
+
+# User-generated content
+uploads/
+data/
+client_secrets.json
+token.json

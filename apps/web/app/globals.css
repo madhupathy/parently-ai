@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 30 25% 97%;
+    --foreground: 20 20% 12%;
+    --card: 30 20% 99%;
+    --card-foreground: 20 20% 12%;
+    --popover: 30 20% 99%;
+    --popover-foreground: 20 20% 12%;
+    --primary: 262 60% 55%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 30 15% 92%;
+    --secondary-foreground: 20 20% 12%;
+    --muted: 30 15% 94%;
+    --muted-foreground: 20 10% 45%;
+    --accent: 340 65% 58%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 30 15% 88%;
+    --input: 30 15% 88%;
+    --ring: 262 60% 55%;
+    --chart-1: 262 60% 55%;
+    --chart-2: 340 65% 58%;
+    --chart-3: 160 50% 45%;
+    --chart-4: 30 80% 55%;
+    --chart-5: 200 60% 50%;
+    --radius: 0.75rem;
+    --sidebar: 30 25% 97%;
+    --sidebar-foreground: 20 20% 12%;
+    --sidebar-primary: 262 60% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 30 15% 92%;
+    --sidebar-accent-foreground: 20 20% 12%;
+    --sidebar-border: 30 15% 88%;
+    --sidebar-ring: 262 60% 55%;
+  }
+
+  .dark {
+    --background: 20 15% 7%;
+    --foreground: 30 15% 95%;
+    --card: 20 15% 10%;
+    --card-foreground: 30 15% 95%;
+    --popover: 20 15% 10%;
+    --popover-foreground: 30 15% 95%;
+    --primary: 262 70% 65%;
+    --primary-foreground: 20 15% 7%;
+    --secondary: 20 10% 15%;
+    --secondary-foreground: 30 15% 95%;
+    --muted: 20 10% 15%;
+    --muted-foreground: 30 10% 55%;
+    --accent: 340 70% 65%;
+    --accent-foreground: 20 15% 7%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 30 15% 95%;
+    --border: 20 10% 18%;
+    --input: 20 10% 18%;
+    --ring: 262 70% 65%;
+    --chart-1: 262 70% 65%;
+    --chart-2: 340 70% 65%;
+    --chart-3: 160 55% 55%;
+    --chart-4: 30 85% 60%;
+    --chart-5: 200 65% 55%;
+    --sidebar: 20 15% 10%;
+    --sidebar-foreground: 30 15% 95%;
+    --sidebar-primary: 262 70% 65%;
+    --sidebar-primary-foreground: 30 15% 95%;
+    --sidebar-accent: 20 10% 15%;
+    --sidebar-accent-foreground: 30 15% 95%;
+    --sidebar-border: 20 10% 18%;
+    --sidebar-ring: 262 70% 65%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Safe area insets for notched phones */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Floating animation for login page digest preview */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+/* Prevent pull-to-refresh in standalone PWA mode */
+@media (display-mode: standalone) {
+  html {
+    overscroll-behavior-y: contain;
+  }
+}

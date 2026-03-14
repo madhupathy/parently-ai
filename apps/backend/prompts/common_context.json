@@ -1,0 +1,19 @@
+{
+  "version": "v1",
+  "time_zone_default": "America/New_York",
+  "allowed_content_types": ["text/html", "application/pdf", "text/calendar", "application/rss+xml", "application/xml"],
+  "discovery_keywords": ["calendar", "events", "district calendar", "academic calendar", "holidays", "no school", "early release", "testing", "parent conference", "subscribe", "ical", "ics", "rss"],
+  "school_site_preference_domains": [".k12.", ".edu", ".org", ".tx.us"],
+  "calendar_link_hints": [".ics", "ical", "subscribe", "calendar feed", "rss", "/calendar", "/events"],
+  "school_doc_hints": ["handbook", "pickup", "drop-off", "arrival", "dismissal", "schedule", "bell schedule", "uniform", "lunch", "policy", "map", "directions"],
+  "email_platform_domains": {
+    "classdojo": ["classdojo.com"],
+    "brightwheel": ["brightwheel.com"],
+    "kumon": ["kumon.com"],
+    "skyward": ["skyward.com", "skyward-sis.com"]
+  },
+  "max_discovery_candidates": 3,
+  "max_pages_per_domain": 5,
+  "crawl_depth": 2,
+  "polite_delay_ms": 800
+}
