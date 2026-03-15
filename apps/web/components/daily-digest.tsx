@@ -229,10 +229,30 @@ export function DailyDigest() {
     return null
   }
 
+  const hasChildrenRealtime = async () => {
+    try {
+      const res = await fetch("/api/children", { cache: "no-store" })
+      if (!res.ok) return false
+      const data = await res.json().catch(() => ({ children: [] }))
+      const children = Array.isArray(data?.children) ? data.children : []
+      return children.length > 0
+    } catch {
+      return false
+    }
+  }
+
   const handleRunDigest = async () => {
     if (!setupStatus?.hasChildren) {
-      openSetupPrompt("child")
-      return
+      const hasChildrenNow = await hasChildrenRealtime()
+      if (!hasChildrenNow) {
+        openSetupPrompt("child")
+        return
+      }
+      setSetupStatus((prev) =>
+        prev
+          ? { ...prev, hasChildren: true, digestReady: true }
+          : null
+      )
     }
 
     setLoading(true)
@@ -354,7 +374,7 @@ export function DailyDigest() {
                   <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
                   {loading
                     ? "Running..."
-                    : !setupStatus?.hasChildren
+                    : !setupLoading && !setupStatus?.hasChildren
                       ? "Add Child"
                       : "Run Digest"}
                 </Button>

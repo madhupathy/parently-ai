@@ -1,27 +1,46 @@
 import NextAuth from "next-auth"
 import Google from "next-auth/providers/google"
 import Apple from "next-auth/providers/apple"
+import Credentials from "next-auth/providers/credentials"
 import type { Provider } from "next-auth/providers"
 
-const providers: Provider[] = [
-  Google({
-    clientId: process.env.GOOGLE_CLIENT_ID!,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-    authorization: {
-      params: {
-        scope: "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/drive.readonly",
-        access_type: "offline",
-        prompt: "select_account",
+const providers: Provider[] = []
+
+if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  providers.push(
+    Google({
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      authorization: {
+        params: {
+          scope: "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/drive.readonly",
+          access_type: "offline",
+          prompt: "select_account",
+        },
       },
-    },
-  }),
-]
+    })
+  )
+}
 
 if (process.env.APPLE_CLIENT_ID && process.env.APPLE_CLIENT_SECRET) {
   providers.push(
     Apple({
       clientId: process.env.APPLE_CLIENT_ID,
       clientSecret: process.env.APPLE_CLIENT_SECRET,
+    })
+  )
+}
+
+if (providers.length === 0) {
+  // Keep auth/session endpoint alive during deploy health checks even if OAuth vars are missing.
+  providers.push(
+    Credentials({
+      id: "bootstrap",
+      name: "Bootstrap",
+      credentials: {},
+      async authorize() {
+        return null
+      },
     })
   )
 }
@@ -55,7 +74,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   pages: {
     signIn: "/",
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET || "dev-nextauth-secret",
 })
 
 /**

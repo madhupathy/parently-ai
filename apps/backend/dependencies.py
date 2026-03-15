@@ -7,6 +7,7 @@ from typing import Annotated, Optional
 
 import jwt
 from fastapi import Depends, Header, HTTPException, status
+from sqlalchemy import func
 
 from config import get_settings
 from storage import get_db
@@ -46,21 +47,24 @@ def get_current_user(
     email = payload.get("email")
     if not email:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token missing email")
+    normalized_email = str(email).strip().lower()
+    if not normalized_email:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token missing email")
 
     name = payload.get("name")
     provider = payload.get("provider", "google")
 
     db = get_db()
     with db.session_scope() as session:
-        user = session.query(User).filter(User.email == email).first()
+        user = session.query(User).filter(func.lower(User.email) == normalized_email).first()
         if not user:
-            user = User(email=email, name=name, provider=provider)
+            user = User(email=normalized_email, name=name, provider=provider)
             session.add(user)
             session.flush()
             entitlement = UserEntitlement(user_id=user.id, plan="FREE", digests_remaining=30)
             session.add(entitlement)
             session.flush()
-            logger.info("Created new user %s (id=%d) with FREE entitlement", email, user.id)
+            logger.info("Created new user %s (id=%d) with FREE entitlement", normalized_email, user.id)
         else:
             if name and name != user.name:
                 user.name = name
