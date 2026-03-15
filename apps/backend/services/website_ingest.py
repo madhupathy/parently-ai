@@ -63,7 +63,7 @@ def ingest_school_website(
     # Store as document
     if clean_text.strip():
         doc_id = _store_website_document(
-            clean_text, announcements, school_name, homepage_url, child_id
+            clean_text, announcements, school_name, homepage_url, child_id, school_source_id
         )
         results["documents_created"] += 1
 
@@ -130,6 +130,7 @@ def _store_website_document(
     school_name: str,
     source_url: str,
     child_id: int,
+    school_source_id: Optional[int] = None,
 ) -> int:
     """Store website content as a Document in the RAG store."""
     # Build combined text for embedding
@@ -167,6 +168,7 @@ def _store_website_document(
                     "source_type": "web_page",
                     "source_url": source_url,
                     "child_id": child_id,
+                    "school_source_id": school_source_id,
                     "school_name": school_name,
                     "announcement_count": len(announcements),
                     "announcements": announcements,
@@ -183,6 +185,7 @@ def _store_website_document(
                 "source_type": "web_page",
                 "source_url": source_url,
                 "child_id": child_id,
+                "school_source_id": school_source_id,
                 "school_name": school_name,
                 "announcement_count": len(announcements),
                 "announcements": announcements,

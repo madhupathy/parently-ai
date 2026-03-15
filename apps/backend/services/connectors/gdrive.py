@@ -13,10 +13,11 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
 from .base import BaseConnector, DigestItem
+from services.integration_state import DRIVE_SCOPE
 
 logger = logging.getLogger(__name__)
 
-SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+SCOPES = [DRIVE_SCOPE]
 
 SUPPORTED_MIME = {
     "application/pdf",
@@ -38,13 +39,42 @@ class GoogleDriveConnector(BaseConnector):
     def authenticate(self, credentials: Dict[str, Any]) -> bool:
         """Build Drive service from OAuth token dict and folder ID."""
         self._folder_id = credentials.get("folder_id")
-        token_info = credentials.get("token")
-        if not self._folder_id or not token_info:
-            logger.warning("Google Drive connector: missing folder_id or token")
+        token_info = credentials.get("token") or credentials.get("oauth")
+        if not token_info and isinstance(credentials.get("credentials"), dict):
+            token_info = credentials.get("credentials")
+        if not self._folder_id or not isinstance(token_info, dict):
+            logger.warning(
+                "Google Drive connector: missing folder_id or oauth payload (has_folder_id=%s has_token=%s)",
+                bool(self._folder_id),
+                isinstance(token_info, dict),
+            )
             return False
 
         try:
-            creds = Credentials.from_authorized_user_info(token_info, scopes=SCOPES)
+            access_token = token_info.get("access_token") or token_info.get("token")
+            refresh_token = token_info.get("refresh_token")
+            token_uri = token_info.get("token_uri")
+            client_id = token_info.get("client_id")
+            client_secret = token_info.get("client_secret")
+            if not all([access_token, refresh_token, token_uri, client_id, client_secret]):
+                logger.warning(
+                    "Google Drive connector: incomplete oauth credentials (access=%s refresh=%s token_uri=%s client_id=%s client_secret=%s)",
+                    bool(access_token),
+                    bool(refresh_token),
+                    bool(token_uri),
+                    bool(client_id),
+                    bool(client_secret),
+                )
+                return False
+
+            creds = Credentials(
+                token=access_token,
+                refresh_token=refresh_token,
+                token_uri=token_uri,
+                client_id=client_id,
+                client_secret=client_secret,
+                scopes=SCOPES,
+            )
             if not creds.valid and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
             self._credentials = creds

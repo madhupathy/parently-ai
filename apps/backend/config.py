@@ -91,6 +91,11 @@ class Settings:
         return self.backend_database_url.startswith("postgresql")
 
     @property
+    def is_production(self) -> bool:
+        env = (os.getenv("ENVIRONMENT") or os.getenv("PYTHON_ENV") or os.getenv("NODE_ENV") or "").strip().lower()
+        return env == "production" or bool(os.getenv("RAILWAY_ENVIRONMENT"))
+
+    @property
     def cors_origins(self) -> list:
         if self.allowed_origins == "*":
             return ["*"]

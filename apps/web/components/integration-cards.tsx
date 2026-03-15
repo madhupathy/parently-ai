@@ -44,20 +44,24 @@ export function IntegrationCards() {
         setIntegrations((prev) =>
           prev.map((item) => {
             if (item.key === "gmail") {
-              const googleSignedIn = ((session as any)?.provider || "") === "google"
+              const googleSignedIn = model.googleLogin
               return {
                 ...item,
                 status: model.gmailConnected ? "connected" : "not_found",
                 helperText: model.gmailConnected
                   ? "Connected via Google"
-                  : googleSignedIn
-                    ? "You’re signed in with Google. Grant Gmail access to include school emails in digests."
-                    : "Connect Gmail to include school emails in digests.",
+                  : model.gmailAuthorized
+                    ? "Gmail OAuth is granted, but connector credentials are incomplete. Reconnect Google to refresh consent."
+                    : googleSignedIn
+                      ? "You’re signed in with Google. Grant Gmail access to include school emails in digests."
+                      : "Connect Gmail to include school emails in digests.",
                 actionLabel: model.gmailConnected
                   ? "Connected"
-                  : googleSignedIn
-                    ? "Grant Gmail access"
-                    : "Connect Gmail",
+                  : model.gmailAuthorized
+                    ? "Reconnect Gmail"
+                    : googleSignedIn
+                      ? "Grant Gmail access"
+                      : "Connect Gmail",
               }
             }
             return {
@@ -65,10 +69,16 @@ export function IntegrationCards() {
               status: model.driveConnected ? "connected" : "not_found",
               helperText: model.driveConnected
                 ? "Connected via Google"
-                : "Grant Google Drive access to include permission slips and documents.",
+                : model.driveAuthorized
+                  ? "Drive OAuth granted. Set a folder in integration config to finish connector setup."
+                  : model.googleLogin
+                    ? "You’re signed in with Google. Grant Drive access to include documents in digests."
+                    : "Connect Google Drive to include permission slips and documents.",
               actionLabel: model.driveConnected
                 ? "Connected"
-                : ((session as any)?.provider || "") === "google"
+                : model.driveAuthorized
+                  ? "Configure Drive Folder"
+                  : model.googleLogin
                   ? "Grant Google Drive access"
                   : "Connect Google Drive",
             }

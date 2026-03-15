@@ -56,7 +56,7 @@ def ingest_school_source(
             events = parse_ics_from_url(url)
             if events:
                 doc_id = _store_events_as_document(
-                    events, school_name, "web_calendar_ics", url, child_id
+                    events, school_name, "web_calendar_ics", url, child_id, school_source_id
                 )
                 results["ics_events"] += len(events)
                 results["documents_created"] += 1
@@ -69,7 +69,7 @@ def ingest_school_source(
             events = parse_rss_from_url(url)
             if events:
                 doc_id = _store_events_as_document(
-                    events, school_name, "web_calendar_rss", url, child_id
+                    events, school_name, "web_calendar_rss", url, child_id, school_source_id
                 )
                 results["rss_events"] += len(events)
                 results["documents_created"] += 1
@@ -82,7 +82,7 @@ def ingest_school_source(
             events = extract_html_calendar(calendar_page_url, school_name)
             if events:
                 doc_id = _store_events_as_document(
-                    events, school_name, "web_calendar_html", calendar_page_url, child_id
+                    events, school_name, "web_calendar_html", calendar_page_url, child_id, school_source_id
                 )
                 results["html_events"] += len(events)
                 results["documents_created"] += 1
@@ -94,7 +94,7 @@ def ingest_school_source(
         try:
             text = _fetch_pdf_text(url)
             if text:
-                doc_id = _store_pdf_document(text, school_name, url, child_id)
+                doc_id = _store_pdf_document(text, school_name, url, child_id, school_source_id)
                 results["pdf_docs"] += 1
                 results["documents_created"] += 1
         except Exception as exc:
@@ -327,6 +327,7 @@ def _store_events_as_document(
     source_type: str,
     source_url: str,
     child_id: int,
+    school_source_id: Optional[int] = None,
 ) -> int:
     """Store calendar events as a Document in the RAG store."""
     # Build a human-readable text representation for embedding
@@ -359,6 +360,7 @@ def _store_events_as_document(
                 "source_url": source_url,
                 "child_id": child_id,
                 "school_name": school_name,
+                "school_source_id": school_source_id,
                 "event_count": len(events),
                 "events": events,
                 "updated_at": datetime.utcnow().isoformat(),
@@ -377,6 +379,7 @@ def _store_events_as_document(
                 "source_url": source_url,
                 "child_id": child_id,
                 "school_name": school_name,
+                "school_source_id": school_source_id,
                 "event_count": len(events),
                 "events": events,
             })
@@ -389,6 +392,7 @@ def _store_pdf_document(
     school_name: str,
     source_url: str,
     child_id: int,
+    school_source_id: Optional[int] = None,
 ) -> int:
     """Store a PDF's extracted text as a Document."""
     content_hash = hashlib.sha256(text.encode()).hexdigest()[:12]
@@ -405,6 +409,7 @@ def _store_pdf_document(
                 "source_url": source_url,
                 "child_id": child_id,
                 "school_name": school_name,
+                "school_source_id": school_source_id,
             })
 
     return doc_id

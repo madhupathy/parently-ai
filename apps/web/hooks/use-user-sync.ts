@@ -31,6 +31,7 @@ export function useUserSync() {
         refresh_token: (session as any).refreshToken || null,
         access_token_expires_at: (session as any).accessTokenExpiresAt || null,
         granted_scopes: (session as any).grantedScopes || null,
+        token_uri: "https://oauth2.googleapis.com/token",
       }),
     }).catch((err) => {
       console.error("Failed to sync user to backend:", err)

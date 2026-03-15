@@ -9,7 +9,9 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
+from config import get_settings
 from dependencies import get_current_user
+from services.integration_state import DRIVE_SCOPE, GMAIL_SCOPE, parse_scopes
 from storage import get_db
 from storage.models import Child, User, UserEntitlement, UserIntegration, UserPreference
 
@@ -28,6 +30,7 @@ class SessionUser(BaseModel):
     refresh_token: Optional[str] = None
     access_token_expires_at: Optional[int] = None
     granted_scopes: Optional[str] = None
+    token_uri: Optional[str] = None
 
 
 @router.post("/sync")
@@ -36,6 +39,27 @@ def sync_user(
     current_user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Update user profile from the NextAuth session (JWT-protected)."""
+    settings = get_settings()
+
+    def _oauth_payload(payload: SessionUser, existing: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        data = dict(existing or {})
+        if payload.access_token:
+            data["access_token"] = payload.access_token
+            data["token"] = payload.access_token
+        if payload.refresh_token:
+            data["refresh_token"] = payload.refresh_token
+        if payload.access_token_expires_at:
+            data["expires_at"] = payload.access_token_expires_at
+        data["token_uri"] = payload.token_uri or data.get("token_uri") or "https://oauth2.googleapis.com/token"
+        data["client_id"] = data.get("client_id") or settings.google_client_id
+        data["client_secret"] = data.get("client_secret") or settings.google_client_secret
+        if payload.granted_scopes:
+            data["scopes"] = [scope for scope in payload.granted_scopes.split(" ") if scope]
+        return data
+
+    def _oauth_ready(token_payload: Dict[str, Any]) -> bool:
+        required = ("access_token", "refresh_token", "token_uri", "client_id", "client_secret")
+        return all(bool(token_payload.get(key)) for key in required)
 
     def _upsert_google_integration(
         session: Any,
@@ -50,41 +74,55 @@ def sync_user(
             .filter(UserIntegration.user_id == user_id, UserIntegration.provider == provider)
             .first()
         )
-        token_payload = {}
-        if payload.access_token:
-            token_payload["access_token"] = payload.access_token
-        if payload.refresh_token:
-            token_payload["refresh_token"] = payload.refresh_token
-        if payload.access_token_expires_at:
-            token_payload["expires_at"] = payload.access_token_expires_at
+        scopes = parse_scopes(payload.granted_scopes)
+        has_scope = scope in scopes
+        token_payload: Dict[str, Any] = {}
 
         if row:
+            existing_token: Dict[str, Any] = {}
+            if row.credentials_json:
+                try:
+                    existing_token = json.loads(row.credentials_json)
+                except Exception:
+                    existing_token = {}
+            token_payload = _oauth_payload(payload, existing=existing_token)
+
+            row.provider = provider
             row.platform = "gmail" if provider == "gmail" else "gdrive"
             row.granted_scopes = payload.granted_scopes or row.granted_scopes
-            if token_payload:
-                existing = {}
-                if row.credentials_json:
-                    try:
-                        existing = json.loads(row.credentials_json)
-                    except Exception:
-                        existing = {}
-                existing.update(token_payload)
-                row.credentials_json = json.dumps(existing)
-                row.config_json = json.dumps({"token": existing})
-            row.status = "connected" if payload.granted_scopes and scope in payload.granted_scopes else "scope_missing"
+            row.credentials_json = json.dumps(token_payload)
+            cfg: Dict[str, Any] = {}
+            if row.config_json:
+                try:
+                    cfg = json.loads(row.config_json)
+                except Exception:
+                    cfg = {}
+            cfg["token"] = token_payload
+            cfg["oauth"] = token_payload
+            row.config_json = json.dumps(cfg)
+
+            if provider == "google_drive":
+                has_folder = bool((cfg.get("folder_id") or "").strip())
+                row.status = "connected" if has_scope and _oauth_ready(token_payload) and has_folder else "scope_missing"
+            else:
+                row.status = "connected" if has_scope and _oauth_ready(token_payload) else "scope_missing"
             return
 
+        token_payload = _oauth_payload(payload)
         if not token_payload and not payload.granted_scopes:
             return
+        status_value = "scope_missing"
+        if provider == "gmail":
+            status_value = "connected" if has_scope and _oauth_ready(token_payload) else "scope_missing"
         session.add(
             UserIntegration(
                 user_id=user_id,
                 platform="gmail" if provider == "gmail" else "gdrive",
                 provider=provider,
                 credentials_json=json.dumps(token_payload) if token_payload else None,
-                config_json=json.dumps({"token": token_payload}) if token_payload else None,
+                config_json=json.dumps({"token": token_payload, "oauth": token_payload}) if token_payload else None,
                 granted_scopes=payload.granted_scopes,
-                status="connected" if payload.granted_scopes and scope in payload.granted_scopes else "scope_missing",
+                status=status_value,
             )
         )
 
@@ -104,14 +142,14 @@ def sync_user(
                     session,
                     user_id=user.id,
                     provider="gmail",
-                    scope="https://www.googleapis.com/auth/gmail.readonly",
+                    scope=GMAIL_SCOPE,
                     payload=payload,
                 )
                 _upsert_google_integration(
                     session,
                     user_id=user.id,
                     provider="google_drive",
-                    scope="https://www.googleapis.com/auth/drive.readonly",
+                    scope=DRIVE_SCOPE,
                     payload=payload,
                 )
 

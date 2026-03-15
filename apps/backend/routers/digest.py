@@ -9,6 +9,7 @@ Key behaviors:
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -37,6 +38,7 @@ def _serialize_digest(d: Digest) -> Dict[str, Any]:
         "summary_md": d.summary_md,
         "items": d.items(),
         "source": d.source,
+        "source_counts": json.loads(d.source_counts_json) if d.source_counts_json else {},
     }
 
 
@@ -154,6 +156,7 @@ def run_digest_endpoint(
                 existing.summary_md = result.get("digest_markdown", "")
                 existing.items_json = result.get("items_json", "[]")
                 existing.raw_json = result.get("raw_json", "{}")
+                existing.source_counts_json = json.dumps(result.get("source_counts", {}))
                 existing.created_at = datetime.utcnow()
                 digest_id = existing.id
             else:
@@ -165,6 +168,7 @@ def run_digest_endpoint(
                     summary_md=result.get("digest_markdown", ""),
                     items_json=result.get("items_json", "[]"),
                     raw_json=result.get("raw_json", "{}"),
+                    source_counts_json=json.dumps(result.get("source_counts", {})),
                 )
                 session.add(digest_obj)
                 session.flush()

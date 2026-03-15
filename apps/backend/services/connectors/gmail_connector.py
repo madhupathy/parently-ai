@@ -19,11 +19,13 @@ class GmailConnector(BaseConnector):
     def __init__(self) -> None:
         self._query: Optional[str] = None
         self._max_results: int = 10
+        self._user_id: Optional[int] = None
 
     def authenticate(self, credentials: Dict[str, Any]) -> bool:
-        """Gmail auth is handled via token.json on disk; config stores the query filter."""
+        """Store connector config and caller context for Gmail fetches."""
         self._query = credentials.get("query", "in:inbox newer_than:7d")
         self._max_results = credentials.get("max_results", 10)
+        self._user_id = credentials.get("user_id")
         return True
 
     def fetch_updates(self, since: Optional[datetime] = None) -> List[DigestItem]:
@@ -31,7 +33,10 @@ class GmailConnector(BaseConnector):
         try:
             from services.gmail import fetch_messages
 
-            messages = fetch_messages(max_results=self._max_results)
+            if self._user_id is None:
+                logger.warning("Gmail connector: missing user_id, skipping fetch")
+                return []
+            messages = fetch_messages(max_results=self._max_results, user_id=self._user_id)
             items: List[DigestItem] = []
 
             for message in messages:

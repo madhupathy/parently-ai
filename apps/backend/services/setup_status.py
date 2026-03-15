@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+from services.integration_state import drive_connector_ready, gmail_connector_ready
 from storage import get_db
 from storage.models import Child, SchoolSource, UserIntegration
 
@@ -31,8 +32,8 @@ def compute_setup_status(user_id: int) -> Dict[str, Any]:
         gmail_row = by_provider.get("gmail")
         drive_row = by_provider.get("google_drive") or by_provider.get("gdrive")
 
-        gmail_connected = bool(gmail_row and gmail_row.status == "connected")
-        drive_connected = bool(drive_row and drive_row.status == "connected")
+        gmail_connected = bool(gmail_row and gmail_connector_ready(gmail_row))
+        drive_connected = bool(drive_row and drive_connector_ready(drive_row))
 
     return {
         "has_children": has_children,

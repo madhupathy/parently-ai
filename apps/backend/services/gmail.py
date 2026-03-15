@@ -20,12 +20,13 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from config import get_settings
+from services.integration_state import GMAIL_SCOPE, extract_oauth_payload, gmail_connector_ready
 from storage import get_db
 from storage.models import UserIntegration
 
 logger = logging.getLogger(__name__)
 
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+SCOPES = [GMAIL_SCOPE]
 
 
 def _load_credentials_from_file(token_path: Path, client_secrets_path: Path) -> Credentials:
@@ -59,38 +60,31 @@ def _credentials_from_db_token(user_id: int) -> Optional[Credentials]:
             logger.info("Gmail auth unavailable: no gmail integration row for user_id=%s", user_id)
             return None
 
-        token_payload: Dict[str, Any] = {}
-        if integration.credentials_json:
-            try:
-                token_payload = json.loads(integration.credentials_json)
-            except Exception:
-                token_payload = {}
-        if not token_payload and integration.config_json:
-            try:
-                cfg = json.loads(integration.config_json)
-                token_payload = cfg.get("token", {}) if isinstance(cfg, dict) else {}
-            except Exception:
-                token_payload = {}
-
-        scopes_str = integration.granted_scopes or ""
-        has_scope = "https://www.googleapis.com/auth/gmail.readonly" in scopes_str
+        token_payload = extract_oauth_payload(integration)
+        has_scope = GMAIL_SCOPE in (integration.granted_scopes or "")
+        has_oauth = gmail_connector_ready(integration)
         logger.info(
-            "Gmail auth check: user_id=%s integration_status=%s has_scope=%s has_access_token=%s has_refresh_token=%s",
+            "Gmail auth check: user_id=%s integration_status=%s has_scope=%s oauth_ready=%s has_access_token=%s has_refresh_token=%s",
             user_id,
             integration.status,
             has_scope,
+            has_oauth,
             bool(token_payload.get("access_token")),
             bool(token_payload.get("refresh_token")),
         )
-        if not has_scope or not token_payload.get("access_token"):
+        if not has_scope or not has_oauth:
+            logger.warning(
+                "Gmail auth incomplete for user_id=%s (missing OAuth fields/scope); skipping Gmail fetch",
+                user_id,
+            )
             return None
 
         creds = Credentials(
             token=token_payload.get("access_token"),
             refresh_token=token_payload.get("refresh_token"),
-            token_uri="https://oauth2.googleapis.com/token",
-            client_id=settings.google_client_id,
-            client_secret=settings.google_client_secret,
+            token_uri=token_payload.get("token_uri"),
+            client_id=token_payload.get("client_id"),
+            client_secret=token_payload.get("client_secret"),
             scopes=SCOPES,
         )
         if not creds.valid and creds.expired and creds.refresh_token:
@@ -114,6 +108,18 @@ def _build_service(user_id: Optional[int] = None) -> Any:
     credentials = None
     if user_id is not None:
         credentials = _credentials_from_db_token(user_id)
+        if credentials is None:
+            # For authenticated app users we do not use token.json in production.
+            if settings.is_production:
+                logger.info("Gmail auth source=none user_id=%s", user_id)
+                return None
+            try:
+                credentials = _load_credentials_from_file(
+                    settings.gmail_token_path,
+                    settings.gmail_client_secrets_path,
+                )
+            except FileNotFoundError:
+                return None
     if credentials is None:
         credentials = _load_credentials_from_file(settings.gmail_token_path, settings.gmail_client_secrets_path)
     return build("gmail", "v1", credentials=credentials)
@@ -125,6 +131,8 @@ def fetch_messages(max_results: int = 5, user_id: Optional[int] = None) -> List[
     settings = get_settings()
     try:
         service = _build_service(user_id=user_id)
+        if service is None:
+            return []
         query = settings.gmail_query
         response = (
             service.users()
@@ -170,6 +178,8 @@ def fetch_messages_targeted(
 
     try:
         service = _build_service(user_id=user_id)
+        if service is None:
+            return []
         response = (
             service.users()
             .messages()
@@ -235,6 +245,9 @@ def save_token(token_bytes: bytes) -> None:
     """Persist uploaded Gmail token bytes to configured path."""
 
     settings = get_settings()
+    if settings.is_production:
+        logger.info("Skipping local Gmail token file write in production environment")
+        return
     settings.gmail_token_path.parent.mkdir(parents=True, exist_ok=True)
     with settings.gmail_token_path.open("wb") as fh:
         fh.write(token_bytes)

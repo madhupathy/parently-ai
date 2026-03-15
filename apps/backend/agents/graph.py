@@ -21,6 +21,7 @@ from config import get_settings
 from services import gmail
 from services.connectors import CONNECTORS
 from services.connectors.base import DigestItem
+from services.integration_state import drive_connector_ready, gmail_connector_ready
 from services.llm import summarize_digest
 from storage import get_db, rag_store
 from storage.models import Child, Document, SchoolSource, UserIntegration
@@ -150,17 +151,17 @@ def fetch_gmail_node(state: DigestState) -> DigestState:
 def fetch_connectors_node(state: DigestState) -> DigestState:
     """Run all configured connectors for the requesting user."""
     logger.info("Fetching updates from platform connectors")
-    email = state.user_context.get("email")
-    if not email:
-        logger.debug("No user email in context, skipping connectors")
+    user_id = state.user_context.get("user_id")
+    if not user_id:
+        logger.debug("No user_id in context, skipping connectors")
         return state
 
     db = get_db()
     with db.session_scope() as session:
         integrations = (
             session.query(UserIntegration)
-            .filter(UserIntegration.user.has(email=email))
-            .filter(UserIntegration.status == "connected")
+            .filter(UserIntegration.user_id == user_id)
+            .filter(UserIntegration.status.in_(("connected", "scope_missing")))
             .all()
         )
 
@@ -174,6 +175,25 @@ def fetch_connectors_node(state: DigestState) -> DigestState:
             try:
                 connector = connector_cls()
                 config = json.loads(integration.config_json) if integration.config_json else {}
+                credentials_payload = {}
+                if integration.credentials_json:
+                    try:
+                        credentials_payload = json.loads(integration.credentials_json)
+                    except Exception:
+                        credentials_payload = {}
+                if isinstance(credentials_payload, dict):
+                    config.setdefault("token", credentials_payload)
+                    config.setdefault("oauth", credentials_payload)
+                    config.setdefault("credentials", credentials_payload)
+                config["user_id"] = user_id
+
+                if platform == "gmail" and not gmail_connector_ready(integration):
+                    logger.warning("Skipping gmail connector: OAuth credentials/scopes are incomplete")
+                    continue
+                if platform == "gdrive" and not drive_connector_ready(integration):
+                    logger.warning("Skipping gdrive connector: OAuth credentials/scopes/folder_id are incomplete")
+                    continue
+
                 if not connector.authenticate(config):
                     logger.warning("Connector auth failed for %s", platform)
                     continue
@@ -312,44 +332,109 @@ def fetch_school_sources_node(state: DigestState) -> DigestState:
 
         for source in sources:
             cid = source.child_id
+            logger.info(
+                "Digest source %s: status=%s type=%s url=%s",
+                source.id,
+                source.status,
+                source.source_type,
+                source.source_url or source.homepage_url or source.calendar_page_url,
+            )
+
+            # Freshen source data at digest time so stale/empty docs from cron do not dominate.
+            cal_result: Dict[str, Any] = {}
+            web_result: Dict[str, Any] = {}
+            try:
+                from services.calendar_ingest import ingest_school_source
+                from services.website_ingest import ingest_school_website
+
+                cal_result = ingest_school_source(
+                    school_source_id=source.id,
+                    child_id=source.child_id,
+                    calendar_page_url=source.calendar_page_url,
+                    ics_urls=source.ics_urls(),
+                    rss_urls=source.rss_urls(),
+                    pdf_urls=source.pdf_urls(),
+                    school_name=source.verified_name or "School",
+                )
+                web_result = ingest_school_website(
+                    school_source_id=source.id,
+                    child_id=source.child_id,
+                    homepage_url=source.homepage_url,
+                    school_name=source.verified_name or "School",
+                )
+                source.last_ingested_at = datetime.utcnow()
+            except Exception as exc:
+                logger.warning("Source %s ingest refresh failed; continuing with existing docs: %s", source.id, exc)
+
+            logger.info(
+                "Digest source %s ingest counts: events=%s announcements=%s docs=%s",
+                source.id,
+                cal_result.get("ics_events", 0) + cal_result.get("rss_events", 0) + cal_result.get("html_events", 0),
+                web_result.get("announcements_extracted", 0),
+                cal_result.get("pdf_docs", 0),
+            )
+
             # Pull calendar events from Documents with matching child_id
             cal_docs = session.query(Document).filter(
                 Document.filename.like("calendar_%"),
             ).order_by(Document.created_at.desc()).limit(20).all()
 
+            cal_filtered = 0
+            cal_added = 0
             for doc in cal_docs:
                 meta = _parse_metadata(doc)
                 if meta.get("child_id") != cid:
+                    cal_filtered += 1
                     continue
                 events = meta.get("events", [])
                 if events:
                     state.school_events_by_child.setdefault(cid, []).extend(events)
+                    cal_added += len(events)
 
             # Pull announcements from website docs
             web_docs = session.query(Document).filter(
                 Document.filename.like("website_%"),
             ).order_by(Document.created_at.desc()).limit(20).all()
 
+            ann_filtered = 0
+            ann_added = 0
             for doc in web_docs:
                 meta = _parse_metadata(doc)
                 if meta.get("child_id") != cid:
+                    ann_filtered += 1
                     continue
                 announcements = meta.get("announcements", [])
                 if announcements:
                     state.announcements_by_child.setdefault(cid, []).extend(announcements)
+                    ann_added += len(announcements)
 
             # Pull school docs extractions
             school_docs = session.query(Document).filter(
                 Document.filename.like("doc_%"),
             ).order_by(Document.created_at.desc()).limit(20).all()
 
+            docs_filtered = 0
+            docs_added = 0
             for doc in school_docs:
                 meta = _parse_metadata(doc)
                 if meta.get("child_id") != cid:
+                    docs_filtered += 1
                     continue
                 extracted = meta.get("extracted", {})
                 if extracted:
                     state.school_docs_by_child.setdefault(cid, []).append(extracted)
+                    docs_added += 1
+
+            logger.info(
+                "Digest source %s contributions: events=%d announcements=%d docs=%d filtered=(events:%d announcements:%d docs:%d)",
+                source.id,
+                cal_added,
+                ann_added,
+                docs_added,
+                cal_filtered,
+                ann_filtered,
+                docs_filtered,
+            )
 
     logger.info(
         "School sources: events for %d children, announcements for %d children, docs for %d children",
@@ -419,6 +504,17 @@ def compose_digest_node(state: DigestState) -> DigestState:
     Falls back to legacy summarize_digest if no children are configured.
     """
     logger.info("Composing digest with LLM summarization (%d items)", len(state.extracted_items))
+    logger.info(
+        "Digest input counts: gmail_messages=%d connector_items=%d school_events=%d school_docs=%d announcements=%d pdf_texts=%d extracted_items=%d retrieved_context=%d",
+        len(state.gmail_messages),
+        len(state.connector_items),
+        sum(len(v) for v in state.school_events_by_child.values()),
+        sum(len(v) for v in state.school_docs_by_child.values()),
+        sum(len(v) for v in state.announcements_by_child.values()),
+        len(state.pdf_texts),
+        len(state.extracted_items),
+        len(state.retrieved_context),
+    )
 
     email = state.user_context.get("email")
 
@@ -581,6 +677,27 @@ def run_digest(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
 
     initial_state: DigestStateDict = _default_state(payload)
     result_state: DigestStateDict = compiled_graph.invoke(initial_state)
+    source_counts = {
+        "gmail_messages": len(result_state.get("gmail_messages", [])),
+        "connector_items": len(result_state.get("connector_items", [])),
+        "school_events": sum(len(v) for v in result_state.get("school_events_by_child", {}).values()),
+        "school_docs": sum(len(v) for v in result_state.get("school_docs_by_child", {}).values()),
+        "announcements": sum(len(v) for v in result_state.get("announcements_by_child", {}).values()),
+        "pdf_texts": len(result_state.get("pdf_texts", [])),
+        "extracted_items": len(result_state.get("extracted_items", [])),
+        "retrieved_context": len(result_state.get("retrieved_context", [])),
+    }
+    logger.info(
+        "Digest final counts: gmail_messages=%d connector_items=%d school_events=%d school_docs=%d announcements=%d pdf_texts=%d extracted_items=%d retrieved_context=%d",
+        source_counts["gmail_messages"],
+        source_counts["connector_items"],
+        source_counts["school_events"],
+        source_counts["school_docs"],
+        source_counts["announcements"],
+        source_counts["pdf_texts"],
+        source_counts["extracted_items"],
+        source_counts["retrieved_context"],
+    )
     result = {
         "digest_markdown": result_state.get("digest_markdown", ""),
         "items_json": json.dumps(result_state.get("extracted_items", []), default=str),
@@ -595,6 +712,7 @@ def run_digest(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             default=str,
         ),
         "source": payload.get("source", "multi") if payload else "multi",
+        "source_counts": source_counts,
     }
     if result_state.get("llm_usage"):
         result["llm_usage"] = result_state["llm_usage"]

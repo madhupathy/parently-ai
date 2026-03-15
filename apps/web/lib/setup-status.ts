@@ -8,6 +8,9 @@ export interface ChildSetupState {
 }
 
 export interface SetupStatusModel {
+  googleLogin: boolean
+  gmailAuthorized: boolean
+  driveAuthorized: boolean
   hasChildren: boolean
   hasSchoolText: boolean
   hasLinkedSchoolSource: boolean
@@ -90,16 +93,14 @@ export async function fetchSetupStatusModel(opts?: {
   const integrationsData =
     integrationsRes && integrationsRes.ok ? await integrationsRes.json() : { integrations: {} }
   const integrations = integrationsData?.integrations || {}
-  const scopes = (opts?.grantedScopes || "").toLowerCase()
   const provider = (opts?.provider || "").toLowerCase()
-
-  const gmailByScope =
-    provider === "google" && scopes.includes("https://www.googleapis.com/auth/gmail.readonly")
-  const driveByScope =
-    provider === "google" && scopes.includes("https://www.googleapis.com/auth/drive.readonly")
-
-  const gmailConnected = integrations?.gmail?.status === "connected" || gmailByScope
-  const driveConnected = integrations?.gdrive?.status === "connected" || driveByScope
+  const googleLogin = provider === "google"
+  const gmailState = integrations?.gmail || {}
+  const driveState = integrations?.google_drive || integrations?.gdrive || {}
+  const gmailAuthorized = Boolean(gmailState?.oauth_connected)
+  const driveAuthorized = Boolean(driveState?.oauth_connected)
+  const gmailConnected = Boolean(gmailState?.connector_ready)
+  const driveConnected = Boolean(driveState?.connector_ready)
 
   const digestReady =
     setupData?.setup_status?.digest_ready ??
@@ -117,6 +118,9 @@ export async function fetchSetupStatusModel(opts?: {
   })
 
   return {
+    googleLogin,
+    gmailAuthorized,
+    driveAuthorized,
     hasChildren,
     hasSchoolText,
     hasLinkedSchoolSource,

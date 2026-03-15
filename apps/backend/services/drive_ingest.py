@@ -11,6 +11,8 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from config import get_settings
+from services.integration_state import extract_oauth_payload
 from storage import get_db
 from storage.models import Child, UserIntegration
 
@@ -42,6 +44,7 @@ def ingest_drive_docs_for_user(user_id: int) -> Dict[str, Any]:
             return results
 
         config = json.loads(drive_integration.config_json) if drive_integration.config_json else {}
+        oauth_payload = extract_oauth_payload(drive_integration)
         folder_id = config.get("folder_id")
 
         children = session.query(Child).filter(Child.user_id == user_id).all()
@@ -59,7 +62,7 @@ def ingest_drive_docs_for_user(user_id: int) -> Dict[str, Any]:
         return results
 
     # List files from Drive folder
-    files = _list_drive_files(config, folder_id)
+    files = _list_drive_files(oauth_payload, folder_id)
     results["files_found"] = len(files)
 
     if not files:
@@ -74,7 +77,7 @@ def ingest_drive_docs_for_user(user_id: int) -> Dict[str, Any]:
             continue
 
         try:
-            text = _download_file_text(config, file_info["id"])
+            text = _download_file_text(oauth_payload, file_info["id"])
             if not text:
                 continue
 
@@ -113,22 +116,30 @@ def ingest_drive_docs_for_user(user_id: int) -> Dict[str, Any]:
     return results
 
 
-def _list_drive_files(config: Dict[str, Any], folder_id: str) -> List[Dict[str, Any]]:
+def _list_drive_files(oauth_payload: Dict[str, Any], folder_id: str) -> List[Dict[str, Any]]:
     """List files in a Google Drive folder using the API."""
     try:
         from googleapiclient.discovery import build
         from google.oauth2.credentials import Credentials
 
-        creds_data = config.get("credentials")
-        if not creds_data:
+        if not oauth_payload:
+            return []
+        settings = get_settings()
+        access_token = oauth_payload.get("access_token") or oauth_payload.get("token")
+        refresh_token = oauth_payload.get("refresh_token")
+        token_uri = oauth_payload.get("token_uri") or "https://oauth2.googleapis.com/token"
+        client_id = oauth_payload.get("client_id") or settings.google_client_id
+        client_secret = oauth_payload.get("client_secret") or settings.google_client_secret
+        if not all([access_token, refresh_token, token_uri, client_id, client_secret]):
+            logger.warning("Drive listing skipped: incomplete OAuth credentials")
             return []
 
         creds = Credentials(
-            token=creds_data.get("token"),
-            refresh_token=creds_data.get("refresh_token"),
-            token_uri=creds_data.get("token_uri", "https://oauth2.googleapis.com/token"),
-            client_id=creds_data.get("client_id"),
-            client_secret=creds_data.get("client_secret"),
+            token=access_token,
+            refresh_token=refresh_token,
+            token_uri=token_uri,
+            client_id=client_id,
+            client_secret=client_secret,
         )
 
         service = build("drive", "v3", credentials=creds)
@@ -145,7 +156,7 @@ def _list_drive_files(config: Dict[str, Any], folder_id: str) -> List[Dict[str, 
         return []
 
 
-def _download_file_text(config: Dict[str, Any], file_id: str) -> Optional[str]:
+def _download_file_text(oauth_payload: Dict[str, Any], file_id: str) -> Optional[str]:
     """Download a file from Drive and extract text (PDF only)."""
     try:
         from googleapiclient.discovery import build
@@ -153,16 +164,24 @@ def _download_file_text(config: Dict[str, Any], file_id: str) -> Optional[str]:
         import io
         from pypdf import PdfReader
 
-        creds_data = config.get("credentials")
-        if not creds_data:
+        if not oauth_payload:
+            return None
+        settings = get_settings()
+        access_token = oauth_payload.get("access_token") or oauth_payload.get("token")
+        refresh_token = oauth_payload.get("refresh_token")
+        token_uri = oauth_payload.get("token_uri") or "https://oauth2.googleapis.com/token"
+        client_id = oauth_payload.get("client_id") or settings.google_client_id
+        client_secret = oauth_payload.get("client_secret") or settings.google_client_secret
+        if not all([access_token, refresh_token, token_uri, client_id, client_secret]):
+            logger.warning("Drive download skipped: incomplete OAuth credentials")
             return None
 
         creds = Credentials(
-            token=creds_data.get("token"),
-            refresh_token=creds_data.get("refresh_token"),
-            token_uri=creds_data.get("token_uri", "https://oauth2.googleapis.com/token"),
-            client_id=creds_data.get("client_id"),
-            client_secret=creds_data.get("client_secret"),
+            token=access_token,
+            refresh_token=refresh_token,
+            token_uri=token_uri,
+            client_id=client_id,
+            client_secret=client_secret,
         )
 
         service = build("drive", "v3", credentials=creds)
