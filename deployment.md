@@ -1,145 +1,136 @@
-# Parently Deployment Guide
+# Parently AI Production Deployment Checklist
 
-This guide productionizes Parently with Railway + Neon using the same hardened pattern used for Panchang AI.
+Use this as the single checklist for production deployment and launch readiness.
 
-## Actual/Current Values
+## Pre-deployment checklist
 
-- Frontend domain (planned): `https://parently-ai.com`
-- Support email: `support@parently-ai.com`
-- Stripe status: `_set to test or live before launch_`
-- Backend public URL: `_set after Railway backend deploy_`
-- Frontend public URL: `_set after Railway frontend deploy_`
+- [ ] Production frontend domain is `https://parently-ai.com`
+- [ ] Backend public URL confirmed as `https://<backend>.up.railway.app`
+- [ ] Frontend Railway URL confirmed as `https://<frontend>.up.railway.app`
+- [ ] Stripe mode selected (`test` or `live`)
+- [ ] Support mailbox validated (`support@parently-ai.com`)
+- [ ] Repository is free of committed secrets
 
-## 1) Services to Create
+## Neon Postgres setup
 
-- GitHub repo: `parently-ai`
-- Railway service 1: backend (`apps/backend`)
-- Railway service 2: web (`apps/web`)
-- Neon Postgres project with `pgvector`
-- Google OAuth Web app credentials
-- Stripe product/price (`Parently Premium`, `$3/month`)
+- [ ] Neon project and database created
+- [ ] `pgvector` enabled: `CREATE EXTENSION IF NOT EXISTS vector;`
+- [ ] Production connection string set in `BACKEND_DATABASE_URL`
+- [ ] Access policies and credentials reviewed
+- [ ] Alembic migration succeeds during backend deploy
 
-## 2) Backend on Railway
+## Railway backend deployment
 
-- Root directory: `apps/backend`
-- Start command:
-  - `alembic upgrade head && uvicorn app:app --host 0.0.0.0 --port $PORT`
-- Healthcheck path:
-  - `/healthz`
+- [ ] Service root directory: `apps/backend`
+- [ ] Start command: `alembic upgrade head && uvicorn app:app --host 0.0.0.0 --port $PORT`
+- [ ] Health check endpoint returns success: `/healthz`
+- [ ] Backend variables configured:
+  - [ ] `BACKEND_DATABASE_URL`
+  - [ ] `NEXTAUTH_SECRET`
+  - [ ] `FRONTEND_APP_URL=https://parently-ai.com`
+  - [ ] `ALLOWED_ORIGINS` includes `https://parently-ai.com` and active Railway frontend domain
+  - [ ] `CRON_SECRET`
+  - [ ] `SUPPORT_EMAIL`
+  - [ ] `GEMINI_API_KEY`
+  - [ ] `GEMINI_MODEL`
+  - [ ] `OPENAI_API_KEY` (optional)
+  - [ ] `OPENAI_MODEL` (optional)
+  - [ ] `STRIPE_SECRET_KEY`
+  - [ ] `STRIPE_PRICE_ID`
+  - [ ] `STRIPE_WEBHOOK_SECRET`
+  - [ ] `SMTP_HOST`
+  - [ ] `SMTP_PORT`
+  - [ ] `SMTP_USER`
+  - [ ] `SMTP_PASSWORD`
+  - [ ] `SMTP_FROM`
+  - [ ] `SMTP_FROM_NAME`
+  - [ ] `SMTP_SECURE`
 
-### Backend Environment Variables
+## Railway frontend deployment
 
-Set without quotes in Railway Variables:
+- [ ] Service root directory: `apps/web`
+- [ ] Build/start pipeline completes successfully
+- [ ] Frontend variables configured:
+  - [ ] `BACKEND_URL=https://<backend>.up.railway.app` (replace placeholder)
+  - [ ] `NEXTAUTH_SECRET` (must match backend)
+  - [ ] `NEXTAUTH_URL=https://parently-ai.com`
+  - [ ] `AUTH_TRUST_HOST=true`
+  - [ ] `GOOGLE_CLIENT_ID`
+  - [ ] `GOOGLE_CLIENT_SECRET`
+  - [ ] `NEXT_PUBLIC_APPLE_AUTH_ENABLED`
+  - [ ] `APPLE_CLIENT_ID` (if enabled)
+  - [ ] `APPLE_CLIENT_SECRET` (if enabled)
+- [ ] Production domain is serving frontend traffic
 
-```env
-BACKEND_DATABASE_URL=postgresql://...
-NEXTAUTH_SECRET=your-shared-secret
-GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-1.5-flash
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-4o-mini
-STRIPE_SECRET_KEY=sk_test_or_live_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-STRIPE_PRICE_ID=price_...
-FRONTEND_APP_URL=https://parently-ai.com
-ALLOWED_ORIGINS=https://parently-ai.com,https://<frontend>.up.railway.app,http://localhost:3001
-CRON_SECRET=your-cron-secret
-SUPPORT_EMAIL=support@parently-ai.com
-SMTP_HOST=mail.privateemail.com
-SMTP_PORT=587
-SMTP_USER=support@parently-ai.com
-SMTP_PASSWORD=...
-SMTP_FROM=support@parently-ai.com
-SMTP_FROM_NAME=Parently
-SMTP_SECURE=false
-```
+## Google OAuth setup
 
-## 3) Frontend on Railway
+- [ ] OAuth web application credentials created
+- [ ] Authorized JavaScript origins include:
+  - [ ] `https://parently-ai.com`
+  - [ ] `https://<frontend>.up.railway.app`
+  - [ ] `http://localhost:3001`
+- [ ] Authorized redirect URIs include:
+  - [ ] `https://parently-ai.com/api/auth/callback/google`
+  - [ ] `https://<frontend>.up.railway.app/api/auth/callback/google`
+  - [ ] `http://localhost:3001/api/auth/callback/google`
+- [ ] Production Google login flow validated
 
-- Root directory: `apps/web`
-- Build: `npm install && npm run build`
-- Start: `npm run start`
+## Stripe setup
 
-### Frontend Environment Variables
+- [ ] Product and monthly recurring price created (`Parently Premium`, `$3/month`)
+- [ ] Webhook endpoint configured: `https://<backend>.up.railway.app/api/billing/webhook`
+- [ ] Webhook events enabled:
+  - [ ] `checkout.session.completed`
+  - [ ] `customer.subscription.updated`
+  - [ ] `customer.subscription.deleted`
+- [ ] Checkout and entitlement updates verified end-to-end
 
-```env
-BACKEND_URL=https://<backend>.up.railway.app
-NEXTAUTH_SECRET=your-shared-secret
-NEXTAUTH_URL=https://parently-ai.com
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-NEXT_PUBLIC_APPLE_AUTH_ENABLED=false
-APPLE_CLIENT_ID=
-APPLE_CLIENT_SECRET=
-```
+## Cron jobs
 
-## 4) Google OAuth (Production-safe)
+- [ ] `POST /api/internal/run-daily-digests` is scheduled
+- [ ] `POST /api/internal/refresh-school-sources` is scheduled
+- [ ] `X-Cron-Secret` header is configured with `CRON_SECRET`
+- [ ] Scheduled execution appears in logs
 
-Authorized JavaScript origins:
+## Core product verification
 
-- `https://parently-ai.com`
-- `https://<frontend>.up.railway.app`
-- `http://localhost:3001`
+- [ ] User sign-in works
+- [ ] Onboarding completes successfully
+- [ ] School discovery returns valid source results
+- [ ] Manual digest generation succeeds
+- [ ] Notification read/unread flows work
+- [ ] Billing upgrade flow succeeds
+- [ ] Free-plan limits enforce HTTP `402` when expected
 
-Authorized redirect URIs:
+## Domain / DNS / SSL
 
-- `https://parently-ai.com/api/auth/callback/google`
-- `https://<frontend>.up.railway.app/api/auth/callback/google`
-- `http://localhost:3001/api/auth/callback/google`
+- [ ] `https://parently-ai.com` points to frontend service
+- [ ] SSL certificate is active and valid
+- [ ] `NEXTAUTH_URL` set to `https://parently-ai.com`
+- [ ] `FRONTEND_APP_URL` set to `https://parently-ai.com`
+- [ ] `ALLOWED_ORIGINS` includes production + active Railway frontend domains
 
-Parently auth is configured with Google account chooser (`prompt=select_account`).
+## PWA / app store readiness
 
-## 5) Stripe Billing
+- [ ] `manifest.json` and required icons are valid
+- [ ] `/.well-known/assetlinks.json` exists and has release cert fingerprint
+- [ ] Install prompt verified on supported browsers
+- [ ] `/support`, `/privacy`, and `/terms` are reachable
+- [ ] Store listing assets and compliance docs are prepared
 
-Create Stripe product and recurring monthly price:
+## Launch readiness
 
-- Product: `Parently Premium`
-- Price: `$3/month`
+- [ ] Backend logs show no critical auth, billing, or DB errors
+- [ ] Frontend logs show no critical runtime errors
+- [ ] Full production smoke test passes on `https://parently-ai.com`
+- [ ] Rollback plan documented
+- [ ] Final go/no-go decision recorded
 
-Backend checkout endpoint:
+## Common pitfalls recheck
 
-- `POST /api/billing/create-checkout-session`
-
-Webhook endpoint:
-
-- `https://<backend>.up.railway.app/api/billing/webhook`
-
-Subscribe these events:
-
-- `checkout.session.completed`
-- `customer.subscription.updated`
-- `customer.subscription.deleted`
-
-## 6) Cron Jobs
-
-Cron endpoints require header `X-Cron-Secret`.
-
-- `POST /api/internal/run-daily-digests`
-- `POST /api/internal/refresh-school-sources`
-
-## 7) PWA + Store Readiness
-
-- Manifest: `apps/web/public/manifest.json`
-- Asset links: `apps/web/public/.well-known/assetlinks.json`
-- Update `assetlinks.json` with Play signing certificate before store release.
-
-## 8) Support and Policy Pages
-
-Ensure these pages are deployed and reachable:
-
-- `/support`
-- `/privacy`
-- `/terms`
-
-Support email for customer communications and receipts/support: `support@parently-ai.com`.
-Checkout customer email must always be the authenticated user email.
-
-## Common Deployment Pitfalls
-
-- Railway service does not bind to `$PORT` or `0.0.0.0`
-- Google OAuth `redirect_uri_mismatch`
-- Missing backend `Authorization: Bearer ...` on proxy calls
-- Stripe webhook not configured or wrong signing secret
-- `ALLOWED_ORIGINS` missing custom domain and Railway domain
-- Modal stacking/z-index issues causing top-stuck dialogs
-- Missing `/.well-known/assetlinks.json` for TWA verification
+- [ ] `NEXTAUTH_SECRET` matches in frontend and backend
+- [ ] `NEXTAUTH_URL` is not blank
+- [ ] `AUTH_TRUST_HOST=true` is set on Railway frontend
+- [ ] Stripe secret key, price ID, and webhook secret are all from the same mode
+- [ ] `ALLOWED_ORIGINS` includes the actual frontend domain
+- [ ] Backend binds to `0.0.0.0:$PORT`
