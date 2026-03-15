@@ -11,6 +11,8 @@ export interface SetupStatusModel {
   googleLogin: boolean
   gmailAuthorized: boolean
   driveAuthorized: boolean
+  gmailReauthorizationRequired: boolean
+  driveReauthorizationRequired: boolean
   hasChildren: boolean
   hasSchoolText: boolean
   hasLinkedSchoolSource: boolean
@@ -99,6 +101,8 @@ export async function fetchSetupStatusModel(opts?: {
   const driveState = integrations?.google_drive || integrations?.gdrive || {}
   const gmailAuthorized = Boolean(gmailState?.oauth_connected)
   const driveAuthorized = Boolean(driveState?.oauth_connected)
+  const gmailReauthorizationRequired = Boolean(gmailState?.reauthorization_required)
+  const driveReauthorizationRequired = Boolean(driveState?.reauthorization_required)
   const gmailConnected = Boolean(gmailState?.connector_ready)
   const driveConnected = Boolean(driveState?.connector_ready)
 
@@ -121,6 +125,8 @@ export async function fetchSetupStatusModel(opts?: {
     googleLogin,
     gmailAuthorized,
     driveAuthorized,
+    gmailReauthorizationRequired,
+    driveReauthorizationRequired,
     hasChildren,
     hasSchoolText,
     hasLinkedSchoolSource,

@@ -16,7 +16,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           scope: "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/drive.readonly",
           access_type: "offline",
           include_granted_scopes: "true",
-          prompt: "select_account",
+          prompt: "consent",
         },
       },
     })
@@ -56,8 +56,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async jwt({ token, account, profile }) {
       const t = token as any
       if (account) {
-        t.accessToken = account.access_token
-        t.refreshToken = account.refresh_token
+        t.accessToken = account.access_token || t.accessToken
+        // Google may omit refresh_token on subsequent logins; preserve existing value.
+        t.refreshToken = account.refresh_token || t.refreshToken
         t.accessTokenExpiresAt = account.expires_at
         t.provider = account.provider
         t.grantedScopes = account.scope || t.grantedScopes

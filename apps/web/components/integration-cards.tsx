@@ -56,6 +56,8 @@ export function IntegrationCards() {
                 status: model.gmailConnected ? "connected" : "not_found",
                 helperText: model.gmailConnected
                   ? "Connected via Google"
+                  : model.gmailReauthorizationRequired
+                    ? "Gmail scope exists but offline access is missing. Reconnect Gmail to grant refresh-token access."
                   : model.gmailAuthorized
                     ? "Gmail OAuth is granted, but connector credentials are incomplete. Reconnect Google to refresh consent."
                     : googleSignedIn
@@ -63,6 +65,8 @@ export function IntegrationCards() {
                       : "Connect Gmail to include school emails in digests.",
                 actionLabel: model.gmailConnected
                   ? "Connected"
+                  : model.gmailReauthorizationRequired
+                    ? "Reconnect Gmail"
                   : model.gmailAuthorized
                     ? "Reconnect Gmail"
                     : googleSignedIn
@@ -75,6 +79,8 @@ export function IntegrationCards() {
               status: model.driveConnected ? "connected" : "not_found",
               helperText: model.driveConnected
                 ? "Connected via Google"
+                : model.driveReauthorizationRequired
+                  ? "Drive scope exists but offline access is missing. Reconnect Drive to grant refresh-token access."
                 : model.driveAuthorized
                   ? "Drive OAuth granted. Set a folder in integration config to finish connector setup."
                   : model.googleLogin
@@ -82,6 +88,8 @@ export function IntegrationCards() {
                     : "Connect Google Drive to include permission slips and documents.",
               actionLabel: model.driveConnected
                 ? "Connected"
+                : model.driveReauthorizationRequired
+                  ? "Reconnect Drive"
                 : model.driveAuthorized
                   ? "Configure Drive Folder"
                   : model.googleLogin

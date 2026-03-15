@@ -63,6 +63,13 @@ def extract_oauth_payload(integration: UserIntegration) -> Dict[str, Any]:
 def oauth_credentials_complete(payload: Dict[str, Any]) -> bool:
     return all(bool(payload.get(field)) for field in _REQUIRED_OAUTH_FIELDS)
 
+def oauth_has_access_token(payload: Dict[str, Any]) -> bool:
+    return bool(payload.get("access_token") or payload.get("token"))
+
+
+def oauth_has_refresh_token(payload: Dict[str, Any]) -> bool:
+    return bool(payload.get("refresh_token"))
+
 
 def has_any_scope(integration: UserIntegration, required_scopes: Iterable[str]) -> bool:
     scopes = parse_scopes(integration.granted_scopes)

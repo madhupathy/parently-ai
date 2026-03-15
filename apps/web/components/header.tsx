@@ -11,13 +11,11 @@ import {
   Zap,
   CreditCard,
   CheckCheck,
-  User,
   Home,
   FileText,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,8 +25,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useTheme } from "next-themes"
-import { useSession, signOut } from "next-auth/react"
+import { signOut } from "next-auth/react"
 import Link from "next/link"
+import { UserMenu } from "@/components/UserMenu"
 import {
   Dialog,
   DialogContent,
@@ -75,7 +74,6 @@ function notifEmoji(type: string) {
 
 export function Header() {
   const { setTheme, theme } = useTheme()
-  const { data: session } = useSession()
 
   const [plan, setPlan] = useState<string | null>(null)
   const [unreadCount, setUnreadCount] = useState(0)
@@ -275,56 +273,7 @@ export function Header() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* ── User Menu ──────────────────── */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="rounded-full">
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage
-                      src={session?.user?.image || ""}
-                      alt={session?.user?.name || "User"}
-                    />
-                    <AvatarFallback>
-                      {session?.user?.name?.charAt(0) || "U"}
-                    </AvatarFallback>
-                  </Avatar>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>
-                  <div className="flex flex-col space-y-1">
-                    <p className="text-sm font-medium">{session?.user?.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {session?.user?.email}
-                    </p>
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link href="/settings?tab=profile">
-                    <User className="mr-2 h-4 w-4" />
-                    Profile
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/settings">
-                    <Settings className="mr-2 h-4 w-4" />
-                    Settings
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/pricing">
-                    <CreditCard className="mr-2 h-4 w-4" />
-                    Pricing & Plan
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/" })}>
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <UserMenu />
           </div>
         </div>
       </div>

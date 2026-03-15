@@ -18,6 +18,8 @@ from services.integration_state import (
     extract_oauth_payload,
     gmail_connector_ready,
     has_any_scope,
+    oauth_has_access_token,
+    oauth_has_refresh_token,
 )
 from services.gmail import save_token
 from storage import get_db
@@ -59,32 +61,48 @@ def integrations_status(current_user: User = Depends(get_current_user)) -> dict[
             oauth_connected = bool(oauth_payload.get("access_token")) and has_any_scope(ui, (GMAIL_SCOPE, DRIVE_SCOPE))
             connector_ready = False
             needs_folder_id = False
+            reauthorization_required = False
+            effective_status = ui.status
             if key == "gmail":
                 connector_ready = gmail_connector_ready(ui)
+                has_scope = has_any_scope(ui, (GMAIL_SCOPE,))
+                has_access = oauth_has_access_token(oauth_payload)
+                has_refresh = oauth_has_refresh_token(oauth_payload)
+                reauthorization_required = has_scope and has_access and not has_refresh
+                if reauthorization_required:
+                    effective_status = "reauthorization_required"
             elif key in ("google_drive", "gdrive"):
                 connector_ready = drive_connector_ready(ui)
                 cfg = ui.config()
                 needs_folder_id = not bool((cfg.get("folder_id") or "").strip())
+                has_scope = has_any_scope(ui, (DRIVE_SCOPE,))
+                has_access = oauth_has_access_token(oauth_payload)
+                has_refresh = oauth_has_refresh_token(oauth_payload)
+                reauthorization_required = has_scope and has_access and not has_refresh
+                if reauthorization_required:
+                    effective_status = "reauthorization_required"
             else:
                 connector_ready = ui.status == "connected"
 
             result[key] = {
-                "status": ui.status,
+                "status": effective_status,
                 "last_synced": ui.last_synced.isoformat() if ui.last_synced else None,
                 "granted_scopes": ui.granted_scopes,
                 "config": ui.config(),
                 "oauth_connected": oauth_connected,
                 "connector_ready": connector_ready,
                 "needs_folder_id": needs_folder_id,
+                "reauthorization_required": reauthorization_required,
             }
             # Backward-compatible alias so frontend can safely read either key.
             if key == "google_drive":
                 result["gdrive"] = result[key]
             logger.info(
-                "Integration row status: user_id=%s key=%s status=%s oauth_connected=%s connector_ready=%s has_access=%s has_refresh=%s scope=%s needs_folder_id=%s",
+                "Integration row status: user_id=%s key=%s db_status=%s effective_status=%s oauth_connected=%s connector_ready=%s has_access=%s has_refresh=%s scope=%s needs_folder_id=%s",
                 current_user.id,
                 key,
                 ui.status,
+                effective_status,
                 oauth_connected,
                 connector_ready,
                 bool(oauth_payload.get("access_token")),
@@ -127,10 +145,20 @@ def configure_integration(
             if provider == "google_drive":
                 has_scope = has_any_scope(integration, (DRIVE_SCOPE,))
                 has_folder = bool((merged_config.get("folder_id") or "").strip())
-                integration.status = "connected" if has_scope and bool(oauth_payload) and has_folder else "scope_missing"
+                has_access = oauth_has_access_token(oauth_payload)
+                has_refresh = oauth_has_refresh_token(oauth_payload)
+                if has_scope and has_access and not has_refresh:
+                    integration.status = "reauthorization_required"
+                else:
+                    integration.status = "connected" if has_scope and drive_connector_ready(integration) and has_folder else "scope_missing"
             elif provider == "gmail":
                 has_scope = has_any_scope(integration, (GMAIL_SCOPE,))
-                integration.status = "connected" if has_scope and bool(oauth_payload) else "scope_missing"
+                has_access = oauth_has_access_token(oauth_payload)
+                has_refresh = oauth_has_refresh_token(oauth_payload)
+                if has_scope and has_access and not has_refresh:
+                    integration.status = "reauthorization_required"
+                else:
+                    integration.status = "connected" if has_scope and gmail_connector_ready(integration) else "scope_missing"
             else:
                 integration.status = "connected"
             if payload.granted_scopes is not None:

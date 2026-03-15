@@ -61,6 +61,18 @@ def sync_user(
         required = ("access_token", "refresh_token", "token_uri", "client_id", "client_secret")
         return all(bool(token_payload.get(key)) for key in required)
 
+    def _integration_status(provider: str, has_scope: bool, token_payload: Dict[str, Any], has_folder: bool = True) -> str:
+        has_access = bool(token_payload.get("access_token"))
+        has_refresh = bool(token_payload.get("refresh_token"))
+        oauth_ready = _oauth_ready(token_payload)
+        if not has_scope:
+            return "scope_missing"
+        if has_scope and has_access and not has_refresh:
+            return "reauthorization_required"
+        if provider == "google_drive" and not has_folder:
+            return "scope_missing"
+        return "connected" if oauth_ready else "scope_missing"
+
     def _upsert_google_integration(
         session: Any,
         *,
@@ -103,17 +115,24 @@ def sync_user(
 
             if provider == "google_drive":
                 has_folder = bool((cfg.get("folder_id") or "").strip())
-                row.status = "connected" if has_scope and _oauth_ready(token_payload) and has_folder else "scope_missing"
+                row.status = _integration_status(
+                    provider,
+                    has_scope=has_scope,
+                    token_payload=token_payload,
+                    has_folder=has_folder,
+                )
             else:
-                row.status = "connected" if has_scope and _oauth_ready(token_payload) else "scope_missing"
+                row.status = _integration_status(
+                    provider,
+                    has_scope=has_scope,
+                    token_payload=token_payload,
+                )
             return
 
         token_payload = _oauth_payload(payload)
         if not token_payload and not payload.granted_scopes:
             return
-        status_value = "scope_missing"
-        if provider == "gmail":
-            status_value = "connected" if has_scope and _oauth_ready(token_payload) else "scope_missing"
+        status_value = _integration_status(provider, has_scope=has_scope, token_payload=token_payload)
         session.add(
             UserIntegration(
                 user_id=user_id,
@@ -174,13 +193,14 @@ def sync_user(
                         except Exception:
                             parsed = {}
                     logger.info(
-                        "Auth sync integration row: user_id=%s provider=%s status=%s has_access=%s has_refresh=%s scopes=%s",
+                        "Auth sync integration row: user_id=%s provider=%s status=%s has_access=%s has_refresh=%s scopes=%s token_uri=%s",
                         user.id,
                         row.provider,
                         row.status,
                         bool(parsed.get("access_token")),
                         bool(parsed.get("refresh_token")),
                         row.granted_scopes or "",
+                        bool(parsed.get("token_uri")),
                     )
 
         return {

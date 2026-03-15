@@ -451,23 +451,41 @@ export default function SettingsPage() {
     const googleSignedIn = sessionProvider === "google"
     const gmailConnected = Boolean(setupStatus?.gmailConnected)
     const driveConnected = Boolean(setupStatus?.driveConnected)
+    const gmailReauthorizationRequired = Boolean(setupStatus?.gmailReauthorizationRequired)
+    const driveReauthorizationRequired = Boolean(setupStatus?.driveReauthorizationRequired)
 
     return [
       {
         id: "gmail", name: "Gmail", description: "Scan school-related emails automatically",
         icon: Mail, color: "bg-red-500/10 text-red-600", connected: gmailConnected,
-        cta: gmailConnected ? "Connected" : googleSignedIn ? "Grant Gmail access" : "Connect Gmail",
+        cta: gmailConnected
+          ? "Connected"
+          : gmailReauthorizationRequired
+            ? "Reconnect Gmail"
+            : googleSignedIn
+              ? "Grant Gmail access"
+              : "Connect Gmail",
         helper: gmailConnected
           ? "Connected via Google sign-in."
-          : "You’re signed in with Google. Grant Gmail access to include school emails in digests.",
+          : gmailReauthorizationRequired
+            ? "Gmail scope exists but offline access is missing. Reconnect Gmail to grant refresh-token access."
+            : "You’re signed in with Google. Grant Gmail access to include school emails in digests.",
       },
       {
         id: "gdrive", name: "Google Drive", description: "Sync documents from a shared folder",
         icon: FolderOpen, color: "bg-yellow-500/10 text-yellow-600", connected: driveConnected,
-        cta: driveConnected ? "Connected" : googleSignedIn ? "Grant Google Drive access" : "Connect Google Drive",
+        cta: driveConnected
+          ? "Connected"
+          : driveReauthorizationRequired
+            ? "Reconnect Drive"
+            : googleSignedIn
+              ? "Grant Google Drive access"
+              : "Connect Google Drive",
         helper: driveConnected
           ? "Connected via Google sign-in."
-          : "Grant Google Drive access to include permission slips and documents.",
+          : driveReauthorizationRequired
+            ? "Drive scope exists but offline access is missing. Reconnect Drive to grant refresh-token access."
+            : "Grant Google Drive access to include permission slips and documents.",
       },
     ]
   }, [sessionProvider, setupStatus])
