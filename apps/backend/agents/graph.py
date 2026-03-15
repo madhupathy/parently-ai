@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
+from functools import wraps
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, TypedDict
 
 from dateutil import parser as date_parser
 from langgraph.graph import END, StateGraph
@@ -28,24 +28,76 @@ from storage.models import Child, Document, SchoolSource, UserIntegration
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+class DigestStateDict(TypedDict, total=False):
+    user_context: Dict[str, Any]
+    gmail_messages: List[Dict[str, Any]]
+    gmail_by_child: List[Dict[str, Any]]
+    connector_items: List[Dict[str, Any]]
+    pdf_texts: List[str]
+    retrieved_context: List[Dict[str, Any]]
+    extracted_items: List[Dict[str, Any]]
+    school_events_by_child: Dict[int, List[Dict[str, Any]]]
+    school_docs_by_child: Dict[int, List[Dict[str, Any]]]
+    announcements_by_child: Dict[int, List[Dict[str, Any]]]
+    classified_emails: List[Dict[str, Any]]
+    children_map: Dict[int, str]
+    digest_markdown: str
+    llm_usage: Optional[Dict[str, Any]]
+
+
+def _default_state(payload: Optional[Dict[str, Any]] = None) -> DigestStateDict:
+    return {
+        "user_context": payload or {},
+        "gmail_messages": [],
+        "gmail_by_child": [],
+        "connector_items": [],
+        "pdf_texts": [],
+        "retrieved_context": [],
+        "extracted_items": [],
+        "school_events_by_child": {},
+        "school_docs_by_child": {},
+        "announcements_by_child": {},
+        "classified_emails": [],
+        "children_map": {},
+        "digest_markdown": "",
+        "llm_usage": None,
+    }
+
+
 class DigestState:
-    user_context: Dict[str, Any] = field(default_factory=dict)
-    gmail_messages: List[Dict[str, Any]] = field(default_factory=list)
-    gmail_by_child: List[Dict[str, Any]] = field(default_factory=list)  # [{child_id, child_name, messages}]
-    connector_items: List[Dict[str, Any]] = field(default_factory=list)
-    pdf_texts: List[str] = field(default_factory=list)
-    retrieved_context: List[Dict[str, Any]] = field(default_factory=list)
-    extracted_items: List[Dict[str, Any]] = field(default_factory=list)
-    school_events_by_child: Dict[int, List[Dict[str, Any]]] = field(default_factory=dict)
-    school_docs_by_child: Dict[int, List[Dict[str, Any]]] = field(default_factory=dict)
-    announcements_by_child: Dict[int, List[Dict[str, Any]]] = field(default_factory=dict)
-    classified_emails: List[Dict[str, Any]] = field(default_factory=list)
-    children_map: Dict[int, str] = field(default_factory=dict)  # child_id → child_name
-    digest_markdown: str = ""
-    llm_usage: Optional[Dict[str, Any]] = None
+    """Attribute-friendly adapter over LangGraph dict state."""
+
+    def __init__(self, raw_state: DigestStateDict):
+        object.__setattr__(self, "_state", raw_state)
+        defaults = _default_state()
+        for key, value in defaults.items():
+            self._state.setdefault(key, value)
+
+    def __getattr__(self, name: str) -> Any:
+        return self._state[name]
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        self._state[name] = value
+
+    def as_dict(self) -> DigestStateDict:
+        return self._state
 
 
+def _state_node(fn: Callable[[DigestState], DigestState]) -> Callable[[DigestStateDict], DigestStateDict]:
+    @wraps(fn)
+    def wrapped(state: DigestStateDict) -> DigestStateDict:
+        digest_state = DigestState(state)
+        result = fn(digest_state)
+        if isinstance(result, DigestState):
+            return result.as_dict()
+        if isinstance(result, dict):
+            return result
+        raise TypeError(f"{fn.__name__} must return dict-compatible state, got {type(result)!r}")
+
+    return wrapped
+
+
+@_state_node
 def fetch_gmail_node(state: DigestState) -> DigestState:
     """Fetch Gmail messages — targeted per-child if children exist, else legacy.
 
@@ -94,6 +146,7 @@ def fetch_gmail_node(state: DigestState) -> DigestState:
     return state
 
 
+@_state_node
 def fetch_connectors_node(state: DigestState) -> DigestState:
     """Run all configured connectors for the requesting user."""
     logger.info("Fetching updates from platform connectors")
@@ -142,6 +195,7 @@ def fetch_connectors_node(state: DigestState) -> DigestState:
     return state
 
 
+@_state_node
 def parse_pdfs_node(state: DigestState) -> DigestState:
     logger.info("Loading PDF texts for digest workflow")
     db = get_db()
@@ -151,6 +205,7 @@ def parse_pdfs_node(state: DigestState) -> DigestState:
     return state
 
 
+@_state_node
 def rag_retrieve_node(state: DigestState) -> DigestState:
     logger.info("Running RAG retrieval")
     query = state.user_context.get("query") or "latest school updates"
@@ -158,6 +213,7 @@ def rag_retrieve_node(state: DigestState) -> DigestState:
     return state
 
 
+@_state_node
 def extract_actions_node(state: DigestState) -> DigestState:
     logger.info("Extracting actions and due dates")
     items: List[Dict[str, Any]] = []
@@ -232,6 +288,7 @@ def extract_actions_node(state: DigestState) -> DigestState:
     return state
 
 
+@_state_node
 def fetch_school_sources_node(state: DigestState) -> DigestState:
     """Pull calendar events, announcements, and docs from verified school sources."""
     user_id = state.user_context.get("user_id")
@@ -299,6 +356,7 @@ def fetch_school_sources_node(state: DigestState) -> DigestState:
     return state
 
 
+@_state_node
 def classify_emails_node(state: DigestState) -> DigestState:
     """Run email classifier on Gmail messages to tag platform and extract events."""
     user_id = state.user_context.get("user_id")
@@ -350,6 +408,7 @@ def classify_emails_node(state: DigestState) -> DigestState:
     return state
 
 
+@_state_node
 def compose_digest_node(state: DigestState) -> DigestState:
     """Compose per-child grouped digest using versioned prompt.
 
@@ -490,7 +549,7 @@ def _compose_with_child_prompt(state: DigestState) -> tuple:
 
 # --- Graph wiring ---
 
-graph = StateGraph(DigestState)
+graph = StateGraph(DigestStateDict)
 graph.add_node("fetch_gmail_node", fetch_gmail_node)
 graph.add_node("fetch_connectors_node", fetch_connectors_node)
 graph.add_node("fetch_school_sources_node", fetch_school_sources_node)
@@ -516,25 +575,25 @@ compiled_graph = graph.compile()
 def run_digest(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Execute the LangGraph workflow and return resulting payload."""
 
-    initial_state = DigestState(user_context=payload or {})
-    result_state: DigestState = compiled_graph.invoke(initial_state)
+    initial_state: DigestStateDict = _default_state(payload)
+    result_state: DigestStateDict = compiled_graph.invoke(initial_state)
     result = {
-        "digest_markdown": result_state.digest_markdown,
-        "items_json": json.dumps(result_state.extracted_items, default=str),
+        "digest_markdown": result_state.get("digest_markdown", ""),
+        "items_json": json.dumps(result_state.get("extracted_items", []), default=str),
         "raw_json": json.dumps(
             {
-                "gmail_messages": result_state.gmail_messages,
-                "connector_items": result_state.connector_items,
-                "retrieved_context": result_state.retrieved_context,
-                "school_events_by_child": result_state.school_events_by_child,
-                "classified_emails": result_state.classified_emails,
+                "gmail_messages": result_state.get("gmail_messages", []),
+                "connector_items": result_state.get("connector_items", []),
+                "retrieved_context": result_state.get("retrieved_context", []),
+                "school_events_by_child": result_state.get("school_events_by_child", {}),
+                "classified_emails": result_state.get("classified_emails", []),
             },
             default=str,
         ),
         "source": payload.get("source", "multi") if payload else "multi",
     }
-    if result_state.llm_usage:
-        result["llm_usage"] = result_state.llm_usage
+    if result_state.get("llm_usage"):
+        result["llm_usage"] = result_state["llm_usage"]
     return result
 
 
