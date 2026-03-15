@@ -23,16 +23,27 @@ async def upload_pdf(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, object]:
+    logger.info(
+        "Upload request: user_id=%s filename=%s content_type=%s",
+        current_user.id,
+        file.filename,
+        file.content_type,
+    )
     if file.content_type not in {"application/pdf"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "invalid_type"})
-    target_folder = settings.pdf_folder
-    target_folder.mkdir(parents=True, exist_ok=True)
-    file_path = target_folder / file.filename
-    data = await file.read()
-    file_path.write_bytes(data)
-    text = extract_text_from_pdf(file_path)
-    doc_id = rag_store.add_document(file.filename, file.content_type, text)
-    return {"ok": True, "document_id": doc_id}
+    try:
+        target_folder = settings.pdf_folder
+        target_folder.mkdir(parents=True, exist_ok=True)
+        file_path = target_folder / file.filename
+        data = await file.read()
+        file_path.write_bytes(data)
+        text = extract_text_from_pdf(file_path)
+        doc_id = rag_store.add_document(file.filename, file.content_type, text)
+        logger.info("Upload success: user_id=%s document_id=%s filename=%s", current_user.id, doc_id, file.filename)
+        return {"ok": True, "document_id": doc_id}
+    except Exception as exc:
+        logger.exception("Upload failed: user_id=%s filename=%s error=%s", current_user.id, file.filename, exc)
+        raise
 
 
 @router.get("/list")

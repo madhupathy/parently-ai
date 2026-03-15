@@ -9,6 +9,8 @@ from storage.models import UserIntegration
 
 GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+DB_STATUS_REAUTH_REQUIRED = "reauth_required"
+API_STATUS_REAUTH_REQUIRED = "reauthorization_required"
 
 _REQUIRED_OAUTH_FIELDS = (
     "access_token",

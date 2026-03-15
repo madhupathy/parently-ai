@@ -47,7 +47,7 @@ def downgrade() -> None:
         """
         UPDATE user_integrations
         SET status = 'scope_missing'
-        WHERE status = 'reauthorization_required'
+        WHERE status IN ('reauthorization_required', 'reauth_required')
         """
     )
     with op.batch_alter_table("user_integrations") as batch_op:

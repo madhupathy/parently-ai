@@ -12,6 +12,8 @@ from pydantic import BaseModel
 from config import get_settings
 from dependencies import get_current_user
 from services.integration_state import (
+    API_STATUS_REAUTH_REQUIRED,
+    DB_STATUS_REAUTH_REQUIRED,
     DRIVE_SCOPE,
     GMAIL_SCOPE,
     drive_connector_ready,
@@ -69,8 +71,8 @@ def integrations_status(current_user: User = Depends(get_current_user)) -> dict[
                 has_access = oauth_has_access_token(oauth_payload)
                 has_refresh = oauth_has_refresh_token(oauth_payload)
                 reauthorization_required = has_scope and has_access and not has_refresh
-                if reauthorization_required:
-                    effective_status = "reauthorization_required"
+                if reauthorization_required or ui.status in (DB_STATUS_REAUTH_REQUIRED, API_STATUS_REAUTH_REQUIRED):
+                    effective_status = API_STATUS_REAUTH_REQUIRED
             elif key in ("google_drive", "gdrive"):
                 connector_ready = drive_connector_ready(ui)
                 cfg = ui.config()
@@ -79,8 +81,8 @@ def integrations_status(current_user: User = Depends(get_current_user)) -> dict[
                 has_access = oauth_has_access_token(oauth_payload)
                 has_refresh = oauth_has_refresh_token(oauth_payload)
                 reauthorization_required = has_scope and has_access and not has_refresh
-                if reauthorization_required:
-                    effective_status = "reauthorization_required"
+                if reauthorization_required or ui.status in (DB_STATUS_REAUTH_REQUIRED, API_STATUS_REAUTH_REQUIRED):
+                    effective_status = API_STATUS_REAUTH_REQUIRED
             else:
                 connector_ready = ui.status == "connected"
 
@@ -148,7 +150,7 @@ def configure_integration(
                 has_access = oauth_has_access_token(oauth_payload)
                 has_refresh = oauth_has_refresh_token(oauth_payload)
                 if has_scope and has_access and not has_refresh:
-                    integration.status = "reauthorization_required"
+                    integration.status = DB_STATUS_REAUTH_REQUIRED
                 else:
                     integration.status = "connected" if has_scope and drive_connector_ready(integration) and has_folder else "scope_missing"
             elif provider == "gmail":
@@ -156,7 +158,7 @@ def configure_integration(
                 has_access = oauth_has_access_token(oauth_payload)
                 has_refresh = oauth_has_refresh_token(oauth_payload)
                 if has_scope and has_access and not has_refresh:
-                    integration.status = "reauthorization_required"
+                    integration.status = DB_STATUS_REAUTH_REQUIRED
                 else:
                     integration.status = "connected" if has_scope and gmail_connector_ready(integration) else "scope_missing"
             else:

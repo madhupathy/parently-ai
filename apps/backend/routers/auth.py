@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from config import get_settings
 from dependencies import get_current_user
-from services.integration_state import DRIVE_SCOPE, GMAIL_SCOPE, parse_scopes
+from services.integration_state import DB_STATUS_REAUTH_REQUIRED, DRIVE_SCOPE, GMAIL_SCOPE, parse_scopes
 from storage import get_db
 from storage.models import Child, User, UserEntitlement, UserIntegration, UserPreference
 
@@ -68,10 +68,29 @@ def sync_user(
         if not has_scope:
             return "scope_missing"
         if has_scope and has_access and not has_refresh:
-            return "reauthorization_required"
+            # Keep DB value <= 20 chars for backward compatibility with pre-migration schemas.
+            return DB_STATUS_REAUTH_REQUIRED
         if provider == "google_drive" and not has_folder:
             return "scope_missing"
         return "connected" if oauth_ready else "scope_missing"
+
+    def _log_field_lengths(*, provider: str, platform: str, status_value: str, scopes_value: Optional[str]) -> None:
+        logger.info(
+            "Auth sync length check: provider(len=%s)=%r platform(len=%s)=%r status(len=%s)=%r granted_scopes(len=%s)",
+            len(provider),
+            provider,
+            len(platform),
+            platform,
+            len(status_value),
+            status_value,
+            len(scopes_value or ""),
+        )
+        if len(status_value) > 20:
+            logger.warning(
+                "Auth sync potential truncation: field=user_integrations.status attempted_len=%s attempted_value=%r",
+                len(status_value),
+                status_value,
+            )
 
     def _upsert_google_integration(
         session: Any,
@@ -127,6 +146,12 @@ def sync_user(
                     has_scope=has_scope,
                     token_payload=token_payload,
                 )
+            _log_field_lengths(
+                provider=row.provider,
+                platform=row.platform,
+                status_value=row.status,
+                scopes_value=row.granted_scopes,
+            )
             return
 
         token_payload = _oauth_payload(payload)
@@ -143,6 +168,12 @@ def sync_user(
                 granted_scopes=payload.granted_scopes,
                 status=status_value,
             )
+        )
+        _log_field_lengths(
+            provider=provider,
+            platform="gmail" if provider == "gmail" else "gdrive",
+            status_value=status_value,
+            scopes_value=payload.granted_scopes,
         )
 
     try:
