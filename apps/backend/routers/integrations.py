@@ -120,5 +120,34 @@ async def upload_gmail_token(
     data = await file.read()
     if not data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "empty_file"})
+    try:
+        token_obj = json.loads(data.decode("utf-8"))
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "invalid_json"})
+    with db.session_scope() as session:
+        integration = (
+            session.query(UserIntegration)
+            .filter(
+                UserIntegration.user_id == current_user.id,
+                UserIntegration.provider == "gmail",
+            )
+            .first()
+        )
+        if integration:
+            integration.credentials_json = json.dumps(token_obj)
+            integration.config_json = json.dumps({"token": token_obj})
+            integration.status = "connected"
+        else:
+            session.add(
+                UserIntegration(
+                    user_id=current_user.id,
+                    platform="gmail",
+                    provider="gmail",
+                    credentials_json=json.dumps(token_obj),
+                    config_json=json.dumps({"token": token_obj}),
+                    status="connected",
+                )
+            )
+    # Keep legacy file flow for local development compatibility.
     save_token(data)
     return {"ok": True}

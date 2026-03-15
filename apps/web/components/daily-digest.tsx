@@ -209,6 +209,9 @@ export function DailyDigest() {
   const hasChildren = childrenCount > 0
   const setupIncomplete = !hasChildren
   const showOnboardingEmptyState = !todayDigest && !setupLoading && !childrenLoading && setupIncomplete
+  const hasLinkedSchoolSource = Boolean(setupStatus?.hasLinkedSchoolSource)
+  const gmailConnected = Boolean(setupStatus?.gmailConnected)
+  const hasDigestDataSource = gmailConnected || hasLinkedSchoolSource
 
   useEffect(() => {
     if (!setupStatus) return
@@ -450,10 +453,26 @@ export function DailyDigest() {
             </div>
           ) : items.length === 0 ? (
             <div className="py-12 text-center space-y-3">
-              <span className="text-4xl block">✅</span>
-              <p className="text-sm text-muted-foreground">
-                All clear! No new school items found today.
-              </p>
+              <span className="text-4xl block">{hasDigestDataSource ? "✅" : "🔌"}</span>
+              {hasDigestDataSource ? (
+                <p className="text-sm text-muted-foreground">
+                  All clear! No new school items found today.
+                </p>
+              ) : (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    No digest sources are connected yet, so we could not find school updates.
+                  </p>
+                  <div className="flex flex-wrap justify-center gap-2 pt-1">
+                    <Button asChild size="sm" variant="outline">
+                      <Link href="/settings?tab=integrations">Connect Gmail</Link>
+                    </Button>
+                    <Button asChild size="sm">
+                      <Link href="/settings?tab=children">Link School Source</Link>
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div className="divide-y divide-border/60">

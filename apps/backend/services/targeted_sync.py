@@ -132,6 +132,7 @@ def _sync_child(
         query=query,
         max_results=25,
         known_message_ids=known_ids,
+        user_id=user_id,
     )
 
     if not new_messages:
@@ -162,6 +163,7 @@ def _fetch_broad(user_id: int, lookback_days: int) -> List[Dict[str, Any]]:
         query=query,
         max_results=25,
         known_message_ids=known_ids,
+        user_id=user_id,
     )
 
     if new_messages:

@@ -36,8 +36,12 @@ Use this as the single checklist for production deployment and launch readiness.
   - [ ] `SUPPORT_EMAIL`
   - [ ] `GEMINI_API_KEY`
   - [ ] `GEMINI_MODEL`
+  - [ ] `GEMINI_EMBEDDING_MODEL`
+  - [ ] `RAG_EMBEDDING_DIMENSION` (must match deployed embedding vectors)
   - [ ] `OPENAI_API_KEY` (optional)
   - [ ] `OPENAI_MODEL` (optional)
+  - [ ] `GOOGLE_CLIENT_ID`
+  - [ ] `GOOGLE_CLIENT_SECRET`
   - [ ] `STRIPE_SECRET_KEY`
   - [ ] `STRIPE_PRICE_ID`
   - [ ] `STRIPE_WEBHOOK_SECRET`
@@ -77,6 +81,8 @@ Use this as the single checklist for production deployment and launch readiness.
   - [ ] `https://<frontend>.up.railway.app/api/auth/callback/google`
   - [ ] `http://localhost:3001/api/auth/callback/google`
 - [ ] Production Google login flow validated
+- [ ] Backend receives and persists Google OAuth token/scope data via `/api/auth/sync`
+- [ ] Gmail integration status shows connected scope (`gmail.readonly`) in `/api/integrations/status`
 
 ## Stripe setup
 

@@ -57,6 +57,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (account) {
         t.accessToken = account.access_token
         t.refreshToken = account.refresh_token
+        t.accessTokenExpiresAt = account.expires_at
         t.provider = account.provider
         t.grantedScopes = account.scope || t.grantedScopes
       }
@@ -65,6 +66,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async session({ session, token }) {
       const t = token as any
       ;(session as any).accessToken = t.accessToken
+      ;(session as any).refreshToken = t.refreshToken
+      ;(session as any).accessTokenExpiresAt = t.accessTokenExpiresAt
       ;(session as any).provider = t.provider
       ;(session as any).grantedScopes = t.grantedScopes
       ;(session as any).jwt = t

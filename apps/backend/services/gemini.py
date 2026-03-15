@@ -1,4 +1,4 @@
-"""Gemini 1.5 Flash integration for digest summarization."""
+"""Gemini integration for digest summarization."""
 
 from __future__ import annotations
 
@@ -72,22 +72,28 @@ def _gemini_generate(
     system_instruction: Optional[str],
     settings: Any,
 ) -> LLMResult:
-    """Call Google Generative AI (Gemini) API."""
-    import google.generativeai as genai
+    """Call Google GenAI SDK (Gemini) API."""
+    from google import genai
+    from google.genai import types
 
-    genai.configure(api_key=settings.gemini_api_key)
+    client = genai.Client(api_key=settings.gemini_api_key)
     model_name = settings.gemini_model
+    logger.info("Using generation model: provider=gemini model=%s", model_name)
 
-    model = genai.GenerativeModel(
-        model_name=model_name,
-        system_instruction=system_instruction,
+    logger.info("Calling Gemini model: %s", model_name)
+    response = client.models.generate_content(
+        model=model_name,
+        contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
+        config=types.GenerateContentConfig(
+            system_instruction=system_instruction or None,
+            temperature=0.4,
+        ),
     )
 
-    response = model.generate_content(prompt)
-
-    text = response.text or ""
-    prompt_tokens = response.usage_metadata.prompt_token_count if response.usage_metadata else 0
-    completion_tokens = response.usage_metadata.candidates_token_count if response.usage_metadata else 0
+    text = getattr(response, "text", "") or ""
+    usage = getattr(response, "usage_metadata", None)
+    prompt_tokens = getattr(usage, "prompt_token_count", 0) if usage else 0
+    completion_tokens = getattr(usage, "candidates_token_count", 0) if usage else 0
 
     cost = _estimate_cost(model_name, prompt_tokens, completion_tokens)
 
@@ -115,6 +121,7 @@ def _openai_generate(
 
     client = OpenAI(api_key=settings.openai_api_key)
     model_name = settings.openai_model
+    logger.info("Using generation model: provider=openai model=%s", model_name)
 
     messages: List[Dict[str, str]] = []
     if system_instruction:

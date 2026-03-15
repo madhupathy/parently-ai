@@ -27,6 +27,10 @@ export function useUserSync() {
         name: session.user.name,
         image: session.user.image,
         provider: (session as any).provider || "google",
+        access_token: (session as any).accessToken || null,
+        refresh_token: (session as any).refreshToken || null,
+        access_token_expires_at: (session as any).accessTokenExpiresAt || null,
+        granted_scopes: (session as any).grantedScopes || null,
       }),
     }).catch((err) => {
       console.error("Failed to sync user to backend:", err)

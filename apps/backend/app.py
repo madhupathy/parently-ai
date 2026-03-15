@@ -30,6 +30,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+def log_ai_configuration() -> None:
+    logger.info(
+        "Gemini model loaded: %s (key_present=%s)",
+        settings.gemini_model,
+        bool(settings.gemini_api_key),
+    )
+    logger.info(
+        "Embedding model loaded: %s (dimension=%d, openai_fallback=%s)",
+        settings.gemini_embedding_model,
+        settings.rag_embedding_dimension,
+        bool(settings.openai_api_key),
+    )
+
 
 @app.get("/healthz")
 @app.get("/health")

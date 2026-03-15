@@ -9,7 +9,7 @@ class TestEstimateCost:
     """Tests for cost estimation logic."""
 
     def test_gemini_flash_cost(self) -> None:
-        cost = _estimate_cost("gemini-1.5-flash", prompt_tokens=1000, completion_tokens=500)
+        cost = _estimate_cost("gemini-flash-latest", prompt_tokens=1000, completion_tokens=500)
         # 1000 * 0.075/1M + 500 * 0.30/1M = 0.000075 + 0.00015 = 0.000225
         assert abs(cost - 0.000225) < 1e-8
 
@@ -23,7 +23,7 @@ class TestEstimateCost:
         assert cost == 0.0
 
     def test_zero_tokens_returns_zero(self) -> None:
-        cost = _estimate_cost("gemini-1.5-flash", prompt_tokens=0, completion_tokens=0)
+        cost = _estimate_cost("gemini-flash-latest", prompt_tokens=0, completion_tokens=0)
         assert cost == 0.0
 
 
@@ -31,9 +31,9 @@ class TestLLMResult:
     """Tests for LLMResult dataclass."""
 
     def test_defaults(self) -> None:
-        result = LLMResult(text="hello", model="gemini-1.5-flash")
+        result = LLMResult(text="hello", model="gemini-flash-latest")
         assert result.text == "hello"
-        assert result.model == "gemini-1.5-flash"
+        assert result.model == "gemini-flash-latest"
         assert result.prompt_tokens == 0
         assert result.completion_tokens == 0
         assert result.estimated_cost_usd == 0.0
@@ -41,7 +41,7 @@ class TestLLMResult:
     def test_with_usage(self) -> None:
         result = LLMResult(
             text="digest",
-            model="gemini-1.5-flash",
+            model="gemini-flash-latest",
             prompt_tokens=500,
             completion_tokens=200,
             estimated_cost_usd=0.0001,

@@ -121,7 +121,11 @@ def parse_ics_from_url(url: str) -> List[Dict[str, Any]]:
 
 def parse_ics_text(text: str) -> List[Dict[str, Any]]:
     """Parse ICS text content into a list of event dicts."""
-    from icalendar import Calendar
+    try:
+        from icalendar import Calendar
+    except ModuleNotFoundError:
+        logger.warning("icalendar dependency missing; using basic ICS parser fallback")
+        return _parse_ics_text_fallback(text)
 
     events = []
     try:
@@ -158,6 +162,49 @@ def parse_ics_text(text: str) -> List[Dict[str, Any]]:
         })
 
     return events
+
+
+def _parse_ics_text_fallback(text: str) -> List[Dict[str, Any]]:
+    """Best-effort parser when python icalendar package is unavailable."""
+    events: List[Dict[str, Any]] = []
+    blocks = text.split("BEGIN:VEVENT")
+    for block in blocks[1:]:
+        body = block.split("END:VEVENT")[0]
+        lines = [line.strip() for line in body.splitlines() if ":" in line]
+        fields: Dict[str, str] = {}
+        for line in lines:
+            key, value = line.split(":", 1)
+            key = key.split(";", 1)[0]
+            fields[key] = value.strip()
+
+        title = fields.get("SUMMARY", "")
+        description = fields.get("DESCRIPTION", "")
+        dtstart_raw = fields.get("DTSTART")
+        dtend_raw = fields.get("DTEND")
+        if not title and not description:
+            continue
+
+        events.append({
+            "title": title,
+            "start_date": _ics_date_to_iso(dtstart_raw),
+            "end_date": _ics_date_to_iso(dtend_raw),
+            "all_day": True,
+            "description": description[:500],
+            "location": fields.get("LOCATION", "")[:200],
+            "category": _categorize_event(title + " " + description),
+            "source_type": "ics",
+        })
+
+    return events
+
+
+def _ics_date_to_iso(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    # Handles YYYYMMDD and YYYYMMDDTHHMMSSZ forms.
+    if len(value) >= 8 and value[:8].isdigit():
+        return f"{value[0:4]}-{value[4:6]}-{value[6:8]}"
+    return value
 
 
 # ---------------------------------------------------------------------------

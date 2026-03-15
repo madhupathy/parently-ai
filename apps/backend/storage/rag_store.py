@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
-import httpx
 from openai import OpenAI
 from sqlalchemy import text as sql_text
 
@@ -17,9 +17,9 @@ from .models import Document, DocumentChunk, Embedding
 
 logger = logging.getLogger(__name__)
 
-ACTIVE_EMBEDDING_PROVIDER = "openai"
-ACTIVE_EMBEDDING_MODEL = "text-embedding-3-small"
-ACTIVE_EMBEDDING_DIMENSION = 1536
+ACTIVE_EMBEDDING_PROVIDER = "gemini"
+ACTIVE_EMBEDDING_MODEL = "gemini-embedding-001"
+DEFAULT_EMBEDDING_DIMENSION = 1536
 FALLBACK_EMBEDDING_PROVIDER = "deterministic-fallback"
 FALLBACK_EMBEDDING_MODEL = "cheap-hash-v1"
 
@@ -60,10 +60,15 @@ def cosine_similarity(vec_a: Sequence[float], vec_b: Sequence[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
-def _cheap_embedding(text: str, dim: int = ACTIVE_EMBEDDING_DIMENSION) -> List[float]:
+def _cheap_embedding(text: str, dim: int = DEFAULT_EMBEDDING_DIMENSION) -> List[float]:
+    # Deterministic token hashing so lexical overlap ranks meaningfully in fallback mode.
     vec = [0.0] * dim
-    for idx, ch in enumerate(text):
-        vec[idx % dim] += (ord(ch) % 31) / 31.0
+    tokens = re.findall(r"[a-z0-9]+", text.lower())
+    if not tokens:
+        tokens = [text.lower()]
+    for token in tokens:
+        bucket = hash(token) % dim
+        vec[bucket] += 1.0
     norm = math.sqrt(sum(v * v for v in vec)) or 1.0
     return [v / norm for v in vec]
 
@@ -72,23 +77,73 @@ def _embed_texts_with_metadata(
     texts: Sequence[str],
 ) -> Tuple[List[List[float]], Dict[str, object]]:
     settings = get_settings()
+    active_dim = settings.rag_embedding_dimension
+    if settings.gemini_api_key:
+        try:
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client(api_key=settings.gemini_api_key)
+            model_name = settings.gemini_embedding_model or ACTIVE_EMBEDDING_MODEL
+            logger.info(
+                "Using embedding model: provider=gemini model=%s dimension=%d",
+                model_name,
+                active_dim,
+            )
+            resp = client.models.embed_content(
+                model=model_name,
+                contents=list(texts),
+                config=types.EmbedContentConfig(output_dimensionality=active_dim),
+            )
+            vectors: List[List[float]] = []
+            embeddings = getattr(resp, "embeddings", None)
+            if embeddings is None and isinstance(resp, dict):
+                embeddings = resp.get("embeddings")
+            if embeddings:
+                for emb in embeddings:
+                    values = getattr(emb, "values", None)
+                    if values is None and isinstance(emb, dict):
+                        values = emb.get("values")
+                    if values:
+                        vectors.append([float(v) for v in values][:active_dim])
+            if vectors and len(vectors) == len(texts):
+                return vectors, {
+                    "embedding_provider": "gemini",
+                    "embedding_model": model_name,
+                    "embedding_dimension": len(vectors[0]),
+                }
+            logger.warning("Gemini embedding returned unexpected payload; falling back")
+        except Exception as exc:
+            logger.warning("Falling back from Gemini embeddings: %s", exc)
     if settings.openai_api_key:
         try:
             client = OpenAI(api_key=settings.openai_api_key)
-            response = client.embeddings.create(model=ACTIVE_EMBEDDING_MODEL, input=list(texts))
-            vectors = [record.embedding for record in response.data]
+            openai_model = "text-embedding-3-small"
+            logger.info(
+                "Using embedding model: provider=openai model=%s dimension=%d",
+                openai_model,
+                active_dim,
+            )
+            response = client.embeddings.create(model=openai_model, input=list(texts))
+            vectors = [record.embedding[:active_dim] for record in response.data]
             return vectors, {
-                "embedding_provider": ACTIVE_EMBEDDING_PROVIDER,
-                "embedding_model": ACTIVE_EMBEDDING_MODEL,
-                "embedding_dimension": len(vectors[0]) if vectors else ACTIVE_EMBEDDING_DIMENSION,
+                "embedding_provider": "openai",
+                "embedding_model": openai_model,
+                "embedding_dimension": len(vectors[0]) if vectors else active_dim,
             }
         except Exception as exc:  # pragma: no cover - network path
             logger.warning("Falling back from OpenAI embeddings: %s", exc)
-    vectors = [_cheap_embedding(text) for text in texts]
+    logger.info(
+        "Using embedding model: provider=%s model=%s dimension=%d",
+        FALLBACK_EMBEDDING_PROVIDER,
+        FALLBACK_EMBEDDING_MODEL,
+        active_dim,
+    )
+    vectors = [_cheap_embedding(text, dim=active_dim) for text in texts]
     return vectors, {
         "embedding_provider": FALLBACK_EMBEDDING_PROVIDER,
         "embedding_model": FALLBACK_EMBEDDING_MODEL,
-        "embedding_dimension": ACTIVE_EMBEDDING_DIMENSION,
+        "embedding_dimension": active_dim,
     }
 
 
@@ -119,8 +174,8 @@ def add_document(
     chunks = chunk_text(text, settings.rag_chunk_size, settings.rag_chunk_overlap)
     embeddings, embedding_meta = _embed_texts_with_metadata(chunks) if chunks else ([], {
         "embedding_provider": ACTIVE_EMBEDDING_PROVIDER,
-        "embedding_model": ACTIVE_EMBEDDING_MODEL,
-        "embedding_dimension": ACTIVE_EMBEDDING_DIMENSION,
+        "embedding_model": settings.gemini_embedding_model,
+        "embedding_dimension": settings.rag_embedding_dimension,
     })
     with db.session_scope() as session:
         doc_metadata: Dict[str, object] = {}
@@ -189,11 +244,11 @@ def retrieve(query: str, top_k: Optional[int] = None) -> List[Dict[str, object]]
     db = get_db()
     query_embed = embed_texts([query])[0]
     query_dim = len(query_embed)
-    if query_dim != ACTIVE_EMBEDDING_DIMENSION:
+    if query_dim != settings.rag_embedding_dimension:
         logger.warning(
             "Skipping RAG retrieval due to query dimension mismatch (got=%d expected=%d)",
             query_dim,
-            ACTIVE_EMBEDDING_DIMENSION,
+            settings.rag_embedding_dimension,
         )
         return []
 
@@ -219,7 +274,7 @@ def retrieve(query: str, top_k: Optional[int] = None) -> List[Dict[str, object]]
                     {
                         "query_vec": vector_literal,
                         "k": limit,
-                        "embedding_dim": ACTIVE_EMBEDDING_DIMENSION,
+                        "embedding_dim": settings.rag_embedding_dimension,
                     },
                 )
             except Exception as exc:

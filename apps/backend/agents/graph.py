@@ -142,7 +142,7 @@ def fetch_gmail_node(state: DigestState) -> DigestState:
                 return state
 
     logger.info("Fetching Gmail messages via legacy token path")
-    state.gmail_messages = gmail.fetch_messages(max_results=10)
+    state.gmail_messages = gmail.fetch_messages(max_results=10, user_id=user_id)
     return state
 
 

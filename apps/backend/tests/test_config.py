@@ -45,4 +45,4 @@ class TestSettings:
     def test_gemini_defaults(self) -> None:
         from config import Settings
         s = Settings()
-        assert s.gemini_model == "gemini-1.5-flash"
+        assert s.gemini_model == "gemini-flash-latest"

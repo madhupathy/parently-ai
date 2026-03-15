@@ -142,9 +142,13 @@ Use exactly these variables in production.
 | `CRON_SECRET` | Yes | Secret for internal scheduled endpoints |
 | `SUPPORT_EMAIL` | Yes | Support sender address |
 | `GEMINI_API_KEY` | Yes | Primary model provider key |
-| `GEMINI_MODEL` | Yes | Example: `gemini-1.5-flash` |
+| `GEMINI_MODEL` | Yes | Example: `gemini-flash-latest` |
+| `GEMINI_EMBEDDING_MODEL` | Yes | Recommended: `gemini-embedding-001` |
+| `RAG_EMBEDDING_DIMENSION` | Yes | Must match stored/query vectors, default `1536` |
 | `OPENAI_API_KEY` | Optional | Fallback model provider key |
 | `OPENAI_MODEL` | Optional | Example: `gpt-4o-mini` |
+| `GOOGLE_CLIENT_ID` | Yes | Required for Gmail token refresh when using DB-persisted OAuth tokens |
+| `GOOGLE_CLIENT_SECRET` | Yes | Required for Gmail token refresh when using DB-persisted OAuth tokens |
 | `STRIPE_SECRET_KEY` | Yes | Stripe secret key, mode-specific |
 | `STRIPE_PRICE_ID` | Yes | Stripe recurring price ID, same mode as key/secret |
 | `STRIPE_WEBHOOK_SECRET` | Yes | Stripe webhook signing secret, same mode as key/price |
@@ -162,6 +166,7 @@ Use exactly these variables in production.
 - Backend verifies JWT bearer tokens using the shared `NEXTAUTH_SECRET`.
 - Frontend proxy routes call backend APIs with `Authorization: Bearer <token>`.
 - New users are synced to backend and routed to onboarding before dashboard access.
+- Google OAuth access/refresh tokens are persisted in backend integration storage (DB), so production digest runs do not rely on local `token.json` files.
 
 ## Smart School Discovery
 

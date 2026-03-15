@@ -51,7 +51,11 @@ class Settings:
 
     # Gemini
     gemini_api_key: Optional[str] = field(default_factory=lambda: os.getenv("GEMINI_API_KEY"))
-    gemini_model: str = field(default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-1.5-flash"))
+    gemini_model: str = field(default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-flash-latest"))
+    gemini_embedding_model: str = field(default_factory=lambda: os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001"))
+    rag_embedding_dimension: int = field(default_factory=lambda: _get_int("RAG_EMBEDDING_DIMENSION", 1536))
+    google_client_id: Optional[str] = field(default_factory=lambda: os.getenv("GOOGLE_CLIENT_ID"))
+    google_client_secret: Optional[str] = field(default_factory=lambda: os.getenv("GOOGLE_CLIENT_SECRET"))
 
     # Stripe
     stripe_secret_key: Optional[str] = field(default_factory=lambda: os.getenv("STRIPE_SECRET_KEY"))
