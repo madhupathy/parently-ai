@@ -120,7 +120,7 @@ export default function OnboardingPage() {
                 (candidate: any) => candidate.source_id && candidate.status === "needs_confirmation"
               )
               if (firstConfirmable?.source_id) {
-                await fetch(`/api/sources/${firstConfirmable.source_id}/confirm`, { method: "POST" })
+                await fetch(`/api/sources/confirm/${firstConfirmable.source_id}`, { method: "POST" })
               }
             }
             updated[i] = {

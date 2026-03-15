@@ -256,7 +256,7 @@ export default function SettingsPage() {
         (candidate: any) => candidate.source_id && candidate.status === "needs_confirmation"
       )
       if (firstConfirmable?.source_id) {
-        await fetch(`/api/sources/${firstConfirmable.source_id}/confirm`, { method: "POST" })
+        await fetch(`/api/sources/confirm/${firstConfirmable.source_id}`, { method: "POST" })
       }
     }
     const sourceRes = await fetch(`/api/sources/${childId}`)
@@ -716,7 +716,7 @@ export default function SettingsPage() {
                                       size="sm"
                                       variant="outline"
                                       onClick={async () => {
-                                        await fetch(`/api/sources/${source.id}/confirm`, { method: "POST" })
+                                        await fetch(`/api/sources/confirm/${source.id}`, { method: "POST" })
                                         if (child.id) {
                                           const sourceRes = await fetch(`/api/sources/${child.id}`)
                                           const sourceData = await sourceRes.json()
