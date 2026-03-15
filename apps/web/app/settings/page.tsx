@@ -114,6 +114,8 @@ const TIMEZONES = [
 
 export default function SettingsPage() {
   const { data: session } = useSession()
+  const sessionProvider = ((session as any)?.provider || (session as any)?.jwt?.provider || "").toLowerCase()
+  const sessionScopes = (session as any)?.grantedScopes || (session as any)?.jwt?.grantedScopes || ""
   const router = useRouter()
   const searchParams = useSearchParams()
   const [activeTab, setActiveTab] = useState("profile")
@@ -408,10 +410,10 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetchSetupStatusModel({
-      provider: (session as any)?.provider,
-      grantedScopes: (session as any)?.grantedScopes,
+      provider: sessionProvider,
+      grantedScopes: sessionScopes,
     }).then(setSetupStatus).catch(() => {})
-  }, [session])
+  }, [sessionProvider, sessionScopes])
 
   useEffect(() => {
     const tab = searchParams.get("tab")
@@ -446,7 +448,7 @@ export default function SettingsPage() {
 
   /* ─── Integration config ───────────────────────────── */
   const integrations = useMemo(() => {
-    const googleSignedIn = ((session as any)?.provider || "") === "google"
+    const googleSignedIn = sessionProvider === "google"
     const gmailConnected = Boolean(setupStatus?.gmailConnected)
     const driveConnected = Boolean(setupStatus?.driveConnected)
 
@@ -468,7 +470,7 @@ export default function SettingsPage() {
           : "Grant Google Drive access to include permission slips and documents.",
       },
     ]
-  }, [session, setupStatus])
+  }, [sessionProvider, setupStatus])
 
   return (
     <div className="space-y-6">
@@ -884,6 +886,7 @@ export default function SettingsPage() {
                           signIn("google", {
                             callbackUrl: "/settings?tab=integrations",
                             prompt: "consent",
+                            include_granted_scopes: "true",
                             scope:
                               integration.id === "gmail"
                                 ? "openid email profile https://www.googleapis.com/auth/gmail.readonly"

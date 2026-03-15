@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
     const res = await backendFetch("/api/integrations/status")
 
     const data = await res.json()
+    console.info("[api/integrations/status] backend payload", data)
     return NextResponse.json(data, { status: res.status })
   } catch (e: any) {
     return NextResponse.json(

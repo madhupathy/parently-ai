@@ -33,14 +33,20 @@ const DEFAULTS: IntegrationDef[] = [
 export function IntegrationCards() {
   const { data: session } = useSession()
   const [integrations, setIntegrations] = useState<IntegrationDef[]>(DEFAULTS)
+  const sessionProvider = ((session as any)?.provider || (session as any)?.jwt?.provider || "").toLowerCase()
+  const sessionScopes = (session as any)?.grantedScopes || (session as any)?.jwt?.grantedScopes || ""
 
   useEffect(() => {
     fetchSetupStatusModel({
-      provider: (session as any)?.provider,
-      grantedScopes: (session as any)?.grantedScopes,
+      provider: sessionProvider,
+      grantedScopes: sessionScopes,
     })
       .then((model) => {
-        console.debug("[integration-cards] setup status model", model)
+        console.debug("[integration-cards] setup status model", {
+          sessionProvider,
+          sessionScopes,
+          model,
+        })
         setIntegrations((prev) =>
           prev.map((item) => {
             if (item.key === "gmail") {
@@ -89,7 +95,7 @@ export function IntegrationCards() {
         console.error("[integration-cards] setup status fetch failed", err)
         // keep defaults
       })
-  }, [session])
+  }, [sessionProvider, sessionScopes])
 
   return (
     <div>
@@ -165,6 +171,7 @@ export function IntegrationCards() {
                   signIn("google", {
                     callbackUrl: "/settings?tab=integrations",
                     prompt: "consent",
+                    include_granted_scopes: "true",
                     scope:
                       integration.key === "gmail"
                         ? "openid email profile https://www.googleapis.com/auth/gmail.readonly"

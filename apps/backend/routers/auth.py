@@ -138,6 +138,14 @@ def sync_user(
 
             # Persist Google OAuth tokens/scopes into integration storage for backend Gmail/Drive access.
             if payload.provider == "google":
+                logger.info(
+                    "Auth sync request: user_id=%s provider=%s scopes=%s has_access=%s has_refresh=%s",
+                    user.id,
+                    payload.provider,
+                    payload.granted_scopes or "",
+                    bool(payload.access_token),
+                    bool(payload.refresh_token),
+                )
                 _upsert_google_integration(
                     session,
                     user_id=user.id,
@@ -152,6 +160,28 @@ def sync_user(
                     scope=DRIVE_SCOPE,
                     payload=payload,
                 )
+                rows = (
+                    session.query(UserIntegration)
+                    .filter(UserIntegration.user_id == user.id)
+                    .filter(UserIntegration.provider.in_(("gmail", "google_drive")))
+                    .all()
+                )
+                for row in rows:
+                    parsed = {}
+                    if row.credentials_json:
+                        try:
+                            parsed = json.loads(row.credentials_json)
+                        except Exception:
+                            parsed = {}
+                    logger.info(
+                        "Auth sync integration row: user_id=%s provider=%s status=%s has_access=%s has_refresh=%s scopes=%s",
+                        user.id,
+                        row.provider,
+                        row.status,
+                        bool(parsed.get("access_token")),
+                        bool(parsed.get("refresh_token")),
+                        row.granted_scopes or "",
+                    )
 
         return {
             "ok": True,

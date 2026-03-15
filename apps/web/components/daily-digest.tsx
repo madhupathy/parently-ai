@@ -110,6 +110,8 @@ function friendlyDate(dateStr: string | null) {
 
 export function DailyDigest() {
   const { data: session } = useSession()
+  const sessionProvider = ((session as any)?.provider || (session as any)?.jwt?.provider || "").toLowerCase()
+  const sessionScopes = (session as any)?.grantedScopes || (session as any)?.jwt?.grantedScopes || ""
   const [loading, setLoading] = useState(false)
   const [showUpgrade, setShowUpgrade] = useState(false)
   const [todayDigest, setTodayDigest] = useState<DigestFull | null>(null)
@@ -173,8 +175,8 @@ export function DailyDigest() {
     setSetupLoading(true)
     try {
       const model = await fetchSetupStatusModel({
-        provider: (session as any)?.provider,
-        grantedScopes: (session as any)?.grantedScopes,
+        provider: sessionProvider,
+        grantedScopes: sessionScopes,
       })
       setSetupStatus(model)
     } catch (err) {
@@ -182,7 +184,7 @@ export function DailyDigest() {
     } finally {
       setSetupLoading(false)
     }
-  }, [session])
+  }, [sessionProvider, sessionScopes])
 
   useEffect(() => {
     fetchSetupStatus()

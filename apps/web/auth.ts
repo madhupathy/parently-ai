@@ -15,6 +15,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         params: {
           scope: "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/drive.readonly",
           access_type: "offline",
+          include_granted_scopes: "true",
           prompt: "select_account",
         },
       },
@@ -60,6 +61,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         t.accessTokenExpiresAt = account.expires_at
         t.provider = account.provider
         t.grantedScopes = account.scope || t.grantedScopes
+        console.info("[auth][jwt] account scope update", {
+          provider: account.provider,
+          scope: account.scope || "",
+          hasAccessToken: Boolean(account.access_token),
+          hasRefreshToken: Boolean(account.refresh_token),
+        })
       }
       return t
     },
@@ -71,6 +78,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       ;(session as any).provider = t.provider
       ;(session as any).grantedScopes = t.grantedScopes
       ;(session as any).jwt = t
+      console.info("[auth][session] hydrated session", {
+        provider: t.provider || "",
+        scopes: t.grantedScopes || "",
+        hasAccessToken: Boolean(t.accessToken),
+        hasRefreshToken: Boolean(t.refreshToken),
+      })
       return session
     },
   },

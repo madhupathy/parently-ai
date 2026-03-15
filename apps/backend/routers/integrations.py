@@ -46,6 +46,12 @@ def integrations_status(current_user: User = Depends(get_current_user)) -> dict[
             .filter(UserIntegration.user_id == current_user.id)
             .all()
         )
+        logger.info(
+            "Integrations status lookup: user_id=%s rows=%s providers=%s",
+            current_user.id,
+            len(user_integrations),
+            [row.provider or row.platform for row in user_integrations],
+        )
         result = {}
         for ui in user_integrations:
             key = ui.provider or ui.platform
@@ -74,6 +80,19 @@ def integrations_status(current_user: User = Depends(get_current_user)) -> dict[
             # Backward-compatible alias so frontend can safely read either key.
             if key == "google_drive":
                 result["gdrive"] = result[key]
+            logger.info(
+                "Integration row status: user_id=%s key=%s status=%s oauth_connected=%s connector_ready=%s has_access=%s has_refresh=%s scope=%s needs_folder_id=%s",
+                current_user.id,
+                key,
+                ui.status,
+                oauth_connected,
+                connector_ready,
+                bool(oauth_payload.get("access_token")),
+                bool(oauth_payload.get("refresh_token")),
+                ui.granted_scopes or "",
+                needs_folder_id,
+            )
+        logger.info("Integrations status response: user_id=%s payload=%s", current_user.id, result)
         return {"ok": True, "integrations": result}
 
 
