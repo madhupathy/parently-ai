@@ -7,14 +7,49 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
-    Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer,
+    Boolean, Date, DateTime, Float, ForeignKey, Index, Integer,
     String, Text, UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
+from pgvector.sqlalchemy import Vector
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class EmbeddingVector(TypeDecorator):
+    """Use pgvector on Postgres and JSON text fallback elsewhere."""
+
+    impl = Text
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):  # type: ignore[override]
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(Vector(1536))
+        return dialect.type_descriptor(Text())
+
+    def process_bind_param(self, value, dialect):  # type: ignore[override]
+        if value is None:
+            return None
+        if dialect.name == "postgresql":
+            return value
+        if isinstance(value, str):
+            return value
+        return json.dumps(value)
+
+    def process_result_value(self, value, dialect):  # type: ignore[override]
+        if value is None:
+            return None
+        if dialect.name == "postgresql":
+            return value
+        if isinstance(value, list):
+            return value
+        try:
+            return json.loads(value)
+        except (TypeError, ValueError):
+            return []
 
 
 def _utcnow() -> datetime:
@@ -169,10 +204,12 @@ class UserIntegration(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
-    platform: Mapped[str] = mapped_column(String(50), nullable=False)  # gmail, gdrive, skyward, classdojo, brightwheel
+    platform: Mapped[str] = mapped_column(String(50), nullable=False)  # backward-compatible alias
+    provider: Mapped[str] = mapped_column(String(50), nullable=False, default="gmail")
     credentials_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # encrypted JSON
     config_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # platform-specific settings
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="not_connected")  # connected, error, not_connected
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="not_connected")  # not_connected, connected, scope_missing, error
+    granted_scopes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # space-delimited oauth scopes
     last_synced: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -227,13 +264,17 @@ class Document(Base):
     child_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("children.id"), nullable=True)
     source_type: Mapped[str] = mapped_column(String(50), nullable=False, default="pdf")  # email, pdf, drive-doc
     source_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # gmail_message_id, drive_id
+    title: Mapped[str] = mapped_column(String(255), nullable=False, default="Document")
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     mime: Mapped[str] = mapped_column(String(128), nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     chunks_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     embeddings_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    chunks_rel = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
     embeddings_rel = relationship("Embedding", back_populates="document", cascade="all, delete-orphan")
 
     def chunks(self) -> List[str]:
@@ -251,16 +292,42 @@ class Embedding(Base):
     __tablename__ = "embeddings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    document_id: Mapped[int] = mapped_column(Integer, ForeignKey("documents.id"), nullable=False)
+    document_id: Mapped[int] = mapped_column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    document_chunk_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("document_chunks.id", ondelete="CASCADE"), nullable=True
+    )
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding_json: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[Optional[List[float]]] = mapped_column(EmbeddingVector(), nullable=True)
+    embedding_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     document = relationship("Document", back_populates="embeddings_rel")
+    document_chunk = relationship("DocumentChunk", back_populates="embeddings")
 
     def get_embedding(self) -> List[float]:
-        return json.loads(self.embedding_json)
+        if self.embedding is not None:
+            return list(self.embedding)
+        if self.embedding_json:
+            return json.loads(self.embedding_json)
+        return []
+
+
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+    __table_args__ = (
+        UniqueConstraint("document_id", "chunk_index", name="uq_document_chunk_index"),
+        Index("ix_document_chunks_document", "document_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    document_id: Mapped[int] = mapped_column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+
+    document = relationship("Document", back_populates="chunks_rel")
+    embeddings = relationship("Embedding", back_populates="document_chunk", cascade="all, delete-orphan")
 
 
 class UserEntitlement(Base):
@@ -429,6 +496,8 @@ class SchoolSource(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     child_id: Mapped[int] = mapped_column(Integer, ForeignKey("children.id", ondelete="CASCADE"), nullable=False)
     school_query: Mapped[str] = mapped_column(Text, nullable=False)  # original search text
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False, default="website")  # calendar, website, email, platform
+    source_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     verified_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     homepage_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     district_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -437,7 +506,7 @@ class SchoolSource(Base):
     rss_urls_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array
     pdf_urls_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array
     confidence_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="needs_confirmation")  # verified, needs_confirmation, failed
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="discovering")  # discovering, discovered, needs_confirmation, linked, failed
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow, nullable=False)
     last_ingested_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

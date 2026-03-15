@@ -220,6 +220,23 @@ Digest generation uses a staged LangGraph flow:
 - Schema management via Alembic migrations.
 - Core entities include users, children, sources, digests, entitlements, billing, and notifications.
 
+### Migration reliability policy
+
+- Production schema creation is migration-only (no `create_all()` bootstrap).
+- Every schema change must ship as an Alembic revision.
+- Migration chain must run cleanly from empty DB:
+  - `alembic downgrade base`
+  - `alembic upgrade head`
+- CI enforces migration safety on fresh Postgres via `.github/workflows/migrations.yml`.
+
+### Storage architecture (RAG)
+
+- `documents`: source metadata + canonical text content.
+- `document_chunks`: normalized per-document chunks (`document_id`, `chunk_index`, `chunk_text`).
+- `embeddings`: vector-ready rows linked to chunks:
+  - Postgres: `vector(1536)` (pgvector), `ivfflat` cosine index
+  - Local fallback: JSON/text embedding storage for non-Postgres dev.
+
 ## Important API Endpoints
 
 | Area | Method | Path |
@@ -231,6 +248,7 @@ Digest generation uses a staged LangGraph flow:
 | Child sources | `GET` | `/api/sources/{child_id}` |
 | Confirm source | `POST` | `/api/sources/{source_id}/confirm` |
 | Remove source | `DELETE` | `/api/sources/{source_id}` |
+| Setup status | `GET` | `/api/setup/status` |
 | Billing checkout | `POST` | `/api/billing/create-checkout-session` |
 | Billing webhook | `POST` | `/api/billing/webhook` |
 | Daily digest cron | `POST` | `/api/internal/run-daily-digests` |

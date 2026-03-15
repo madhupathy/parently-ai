@@ -18,6 +18,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
+from sqlalchemy import or_
 
 from dependencies import get_current_user
 from storage import get_db
@@ -203,7 +204,7 @@ def confirm_source(
     source_id: int,
     current_user: User = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """User confirms a needs_confirmation source as verified."""
+    """User confirms a needs_confirmation source as linked."""
     with db.session_scope() as session:
         source = session.query(SchoolSource).filter(
             SchoolSource.id == source_id,
@@ -212,7 +213,7 @@ def confirm_source(
         if not source:
             raise HTTPException(status_code=404, detail="Source not found")
 
-        source.status = "verified"
+        source.status = "linked"
         source.confidence_score = 1.0  # user-confirmed = max confidence
 
         # Create user_integrations entries
@@ -297,7 +298,8 @@ def _run_discovery_pipeline(
         }
         candidate_results.append(candidate_detail)
 
-        if classification in ("verified", "needs_confirmation"):
+        source_status = "linked" if classification == "verified" else classification
+        if source_status in ("linked", "needs_confirmation"):
             source_id = _persist_source(
                 user_id=user_id,
                 child_id=child_id,
@@ -305,7 +307,7 @@ def _run_discovery_pipeline(
                 candidate=candidate,
                 fetch_result=fetch_result,
                 score=score,
-                status=classification,
+                status=source_status,
             )
             candidate_detail["source_id"] = source_id
             sources_created += 1
@@ -337,6 +339,8 @@ def _persist_source(
             user_id=user_id,
             child_id=child_id,
             school_query=school_query,
+            source_type="website",
+            source_url=candidate.get("homepage_url") or candidate.get("calendar_page_url"),
             verified_name=candidate.get("name"),
             homepage_url=candidate.get("homepage_url"),
             district_url=candidate.get("district_site_url"),
@@ -352,7 +356,7 @@ def _persist_source(
         source_id = source.id
 
         # Create/update child-specific public source integration state.
-        if status in ("verified", "needs_confirmation"):
+        if status in ("linked", "needs_confirmation"):
             _ensure_integrations(session, source)
 
     return source_id
@@ -360,10 +364,10 @@ def _persist_source(
 
 def _ensure_integrations(session: Any, source: SchoolSource) -> None:
     """Upsert public source integrations for a specific child/source."""
-    for platform in ("public_calendar", "public_website"):
+    for provider in ("public_calendar", "public_website"):
         all_for_platform = session.query(UserIntegration).filter(
             UserIntegration.user_id == source.user_id,
-            UserIntegration.platform == platform,
+            UserIntegration.provider == provider,
         ).all()
         existing = None
         for row in all_for_platform:
@@ -372,7 +376,7 @@ def _ensure_integrations(session: Any, source: SchoolSource) -> None:
                 existing = row
                 break
 
-        integration_status = "connected" if source.status == "verified" else "pending_confirmation"
+        integration_status = "connected" if source.status == "linked" else "scope_missing"
         integration_config = {
             "school_source_id": source.id,
             "child_id": source.child_id,
@@ -383,21 +387,24 @@ def _ensure_integrations(session: Any, source: SchoolSource) -> None:
         if not existing:
             session.add(UserIntegration(
                 user_id=source.user_id,
-                platform=platform,
+                platform=provider,
+                provider=provider,
                 status=integration_status,
                 config_json=json.dumps(integration_config),
             ))
         else:
+            existing.platform = provider
+            existing.provider = provider
             existing.status = integration_status
             existing.config_json = json.dumps(integration_config)
 
 
 def _update_child_from_best_source(child_id: int) -> None:
-    """Auto-populate child.school_name and school_domain from the top verified source."""
+    """Auto-populate child.school_name and school_domain from the top linked source."""
     with db.session_scope() as session:
         best = session.query(SchoolSource).filter(
             SchoolSource.child_id == child_id,
-            SchoolSource.status == "verified",
+            SchoolSource.status.in_(("linked", "verified")),
         ).order_by(SchoolSource.confidence_score.desc()).first()
 
         if not best:
@@ -427,7 +434,10 @@ def _clear_existing_sources_for_child(session: Any, user_id: int, child_id: int)
 
     integrations = session.query(UserIntegration).filter(
         UserIntegration.user_id == user_id,
-        UserIntegration.platform.in_(("public_calendar", "public_website")),
+        or_(
+            UserIntegration.provider.in_(("public_calendar", "public_website")),
+            UserIntegration.platform.in_(("public_calendar", "public_website")),
+        ),
     ).all()
     for integration in integrations:
         cfg = integration.config()
@@ -446,8 +456,12 @@ def _finish_job(job_id: int, status: str, result: Dict[str, Any]) -> None:
 
 
 def _serialize_source(source: SchoolSource) -> Dict[str, Any]:
-    if source.status == "verified":
+    if source.status in ("linked", "verified"):
         state = "linked"
+    elif source.status == "discovered":
+        state = "discovered"
+    elif source.status == "discovering":
+        state = "discovering"
     elif source.status == "needs_confirmation":
         state = "discovered_needs_confirmation"
     else:
@@ -456,6 +470,8 @@ def _serialize_source(source: SchoolSource) -> Dict[str, Any]:
     return {
         "id": source.id,
         "child_id": source.child_id,
+        "source_type": source.source_type,
+        "source_url": source.source_url,
         "school_query": source.school_query,
         "verified_name": source.verified_name,
         "homepage_url": source.homepage_url,

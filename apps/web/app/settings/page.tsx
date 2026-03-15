@@ -132,7 +132,7 @@ export default function SettingsPage() {
 
   const loadChildren = useCallback(async () => {
     try {
-      const res = await fetch("/api/children")
+      const res = await fetch("/api/children", { cache: "no-store" })
       const data = await res.json()
       if (data.ok) {
         const loadedChildren = data.children || []
@@ -302,18 +302,31 @@ export default function SettingsPage() {
     try {
       let childId = child.id
       if (child.id) {
-        await fetch(`/api/children/${child.id}`, {
+        console.debug("[settings-child-save] payload", { mode: "update", child })
+        const updateRes = await fetch(`/api/children/${child.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(child),
         })
+        const updateData = await updateRes.json().catch(() => ({}))
+        console.debug("[settings-child-save] response", {
+          mode: "update",
+          status: updateRes.status,
+          body: updateData,
+        })
       } else {
+        console.debug("[settings-child-save] payload", { mode: "create", child })
         const res = await fetch("/api/children", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(child),
         })
         const data = await res.json()
+        console.debug("[settings-child-save] response", {
+          mode: "create",
+          status: res.status,
+          body: data,
+        })
         if (data.ok) {
           const updated = [...children]
           updated[index] = { ...updated[index], id: data.child_id }
@@ -326,6 +339,8 @@ export default function SettingsPage() {
       } else if (childId) {
         setChildSources((prev) => ({ ...prev, [childId]: [] }))
       }
+      await loadChildren()
+      window.dispatchEvent(new Event("parently:children-updated"))
     } finally {
       setChildSaving(false)
     }

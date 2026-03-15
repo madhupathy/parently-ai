@@ -166,8 +166,29 @@ export function DailyDigest() {
     fetchSetupStatus()
   }, [fetchSetupStatus])
 
+  useEffect(() => {
+    const onChildrenUpdated = () => fetchSetupStatus()
+    const onFocus = () => fetchSetupStatus()
+    window.addEventListener("parently:children-updated", onChildrenUpdated)
+    window.addEventListener("focus", onFocus)
+    return () => {
+      window.removeEventListener("parently:children-updated", onChildrenUpdated)
+      window.removeEventListener("focus", onFocus)
+    }
+  }, [fetchSetupStatus])
+
   const setupIncomplete = !setupStatus?.hasChildren
   const showOnboardingEmptyState = !todayDigest && !setupLoading && setupIncomplete
+
+  useEffect(() => {
+    if (!setupStatus) return
+    console.debug("[daily-digest] setup status snapshot", {
+      hasChildren: setupStatus.hasChildren,
+      hasSchoolText: setupStatus.hasSchoolText,
+      hasLinkedSchoolSource: setupStatus.hasLinkedSchoolSource,
+      digestReady: setupStatus.digestReady,
+    })
+  }, [setupStatus])
 
   const openSetupPrompt = (kind: "child" | "integrations") => {
     if (kind === "child") {

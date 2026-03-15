@@ -18,6 +18,9 @@ Use this as the single checklist for production deployment and launch readiness.
 - [ ] Production connection string set in `BACKEND_DATABASE_URL`
 - [ ] Access policies and credentials reviewed
 - [ ] Alembic migration succeeds during backend deploy
+- [ ] Empty DB migration chain validated:
+  - [ ] `alembic downgrade base`
+  - [ ] `alembic upgrade head`
 
 ## Railway backend deployment
 
@@ -97,10 +100,16 @@ Use this as the single checklist for production deployment and launch readiness.
 - [ ] User sign-in works
 - [ ] Onboarding completes successfully
 - [ ] School discovery returns valid source results
+- [ ] Setup status endpoint is healthy: `GET /api/setup/status`
 - [ ] Manual digest generation succeeds
 - [ ] Notification read/unread flows work
 - [ ] Billing upgrade flow succeeds
 - [ ] Free-plan limits enforce HTTP `402` when expected
+
+## Continuous migration safety
+
+- [ ] GitHub Actions migration check is enabled (`.github/workflows/migrations.yml`)
+- [ ] CI migration job passes against fresh Postgres before release
 
 ## Domain / DNS / SSL
 

@@ -32,7 +32,8 @@ export function QuickStats() {
   const [childrenCount, setChildrenCount] = useState(0)
 
   useEffect(() => {
-    fetch("/api/billing/status")
+    const loadStats = () => {
+      fetch("/api/billing/status", { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
         if (data.ok) {
@@ -42,12 +43,23 @@ export function QuickStats() {
       })
       .catch(() => {})
 
-    fetch("/api/children")
+      fetch("/api/children", { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
         if (data.ok) setChildrenCount(data.children?.length || 0)
       })
       .catch(() => {})
+    }
+
+    loadStats()
+    const onChildrenUpdated = () => loadStats()
+    const onFocus = () => loadStats()
+    window.addEventListener("parently:children-updated", onChildrenUpdated)
+    window.addEventListener("focus", onFocus)
+    return () => {
+      window.removeEventListener("parently:children-updated", onChildrenUpdated)
+      window.removeEventListener("focus", onFocus)
+    }
   }, [])
 
   const events = useCountUp(4)

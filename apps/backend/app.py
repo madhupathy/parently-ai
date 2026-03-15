@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import get_settings
 from dependencies import verify_cron_secret
-from routers import auth, billing, children, contact, digest, integrations, notifications, preferences, search_profiles, sources, uploads
+from routers import auth, billing, children, contact, digest, integrations, notifications, preferences, search_profiles, setup, sources, uploads
 from storage import get_db
 from storage.models import User, UserEntitlement
 
@@ -136,7 +136,7 @@ def refresh_school_sources() -> Dict[str, Any]:
 
     with db.session_scope() as session:
         sources = session.query(SchoolSource).filter(
-            SchoolSource.status == "verified"
+            SchoolSource.status.in_(("linked", "verified"))
         ).all()
         source_data = [
             {
@@ -200,3 +200,4 @@ app.include_router(preferences.router, prefix="/api/preferences", tags=["prefere
 app.include_router(search_profiles.router, prefix="/api/search-profiles", tags=["search-profiles"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(sources.router, prefix="/api/sources", tags=["sources"])
+app.include_router(setup.router, prefix="/api/setup", tags=["setup"])

@@ -9,10 +9,11 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import httpx
 from openai import OpenAI
+from sqlalchemy import text as sql_text
 
 from config import get_settings
 from .database import get_db
-from .models import Document, Embedding
+from .models import Document, DocumentChunk, Embedding
 
 logger = logging.getLogger(__name__)
 
@@ -85,8 +86,22 @@ def embed_texts(texts: Sequence[str]) -> List[List[float]]:
     return [_cheap_embedding(text) for text in texts]
 
 
-def add_document(filename: str, mime: str, text: str) -> int:
-    """Store a document with chunk metadata and embeddings in the Embedding table."""
+def _vector_literal(vector: Sequence[float]) -> str:
+    return "[" + ",".join(f"{x:.8f}" for x in vector) + "]"
+
+
+def add_document(
+    filename: str,
+    mime: str,
+    text: str,
+    *,
+    user_id: Optional[int] = None,
+    child_id: Optional[int] = None,
+    source_type: str = "pdf",
+    source_id: Optional[str] = None,
+    title: Optional[str] = None,
+) -> int:
+    """Store a document with chunk and embedding rows."""
 
     settings = get_settings()
     db = get_db()
@@ -94,6 +109,12 @@ def add_document(filename: str, mime: str, text: str) -> int:
     embeddings = embed_texts(chunks) if chunks else []
     with db.session_scope() as session:
         document = Document(
+            user_id=user_id,
+            child_id=child_id,
+            source_type=source_type,
+            source_id=source_id,
+            title=title or filename,
+            content=text,
             filename=filename,
             mime=mime,
             text=text,
@@ -103,12 +124,23 @@ def add_document(filename: str, mime: str, text: str) -> int:
         session.add(document)
         session.flush()
 
+        is_postgres = session.bind and session.bind.dialect.name == "postgresql"
+
         for idx, (chunk, emb) in enumerate(zip(chunks, embeddings)):
-            row = Embedding(
+            chunk_row = DocumentChunk(
                 document_id=document.id,
                 chunk_index=idx,
                 chunk_text=chunk,
-                embedding_json=json.dumps(emb),
+            )
+            session.add(chunk_row)
+            session.flush()
+            row = Embedding(
+                document_id=document.id,
+                document_chunk_id=chunk_row.id,
+                chunk_index=idx,
+                chunk_text=chunk,
+                embedding=emb if is_postgres else None,
+                embedding_json=None if is_postgres else json.dumps(emb),
             )
             session.add(row)
 
@@ -137,6 +169,31 @@ def retrieve(query: str, top_k: Optional[int] = None) -> List[Dict[str, object]]
     query_embed = embed_texts([query])[0]
 
     with db.session_scope() as session:
+        is_postgres = session.bind and session.bind.dialect.name == "postgresql"
+        if is_postgres:
+            vector_literal = _vector_literal(query_embed)
+            sql = """
+                SELECT
+                    1 - (e.embedding <=> CAST(:query_vec AS vector)) AS similarity,
+                    dc.chunk_text AS text,
+                    dc.document_id AS document_id
+                FROM embeddings e
+                JOIN document_chunks dc ON dc.id = e.document_chunk_id
+                WHERE e.embedding IS NOT NULL
+                ORDER BY e.embedding <=> CAST(:query_vec AS vector)
+                LIMIT :k
+            """
+            rows = session.execute(
+                sql_text(sql), {"query_vec": vector_literal, "k": limit}
+            )
+            return [
+                {
+                    "similarity": float(row.similarity),
+                    "text": row.text,
+                    "document_id": row.document_id,
+                }
+                for row in rows
+            ]
         emb_rows = session.query(Embedding).all()
         if not emb_rows:
             return []

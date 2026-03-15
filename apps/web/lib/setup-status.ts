@@ -47,18 +47,20 @@ export async function fetchSetupStatusModel(opts?: {
   grantedScopes?: string
   provider?: string
 }): Promise<SetupStatusModel> {
-  const [childrenRes, integrationsRes] = await Promise.all([
-    fetch("/api/children"),
-    fetch("/api/integrations/status").catch(() => null as any),
+  const [setupRes, childrenRes, integrationsRes] = await Promise.all([
+    fetch("/api/setup/status", { cache: "no-store" }).catch(() => null as any),
+    fetch("/api/children", { cache: "no-store" }),
+    fetch("/api/integrations/status", { cache: "no-store" }).catch(() => null as any),
   ])
 
+  const setupData = setupRes && setupRes.ok ? await setupRes.json() : null
   const childrenData = childrenRes.ok ? await childrenRes.json() : { children: [] }
   const children: ChildRow[] = childrenData?.children || []
-  const hasChildren = children.length > 0
+  const hasChildren = setupData?.setup_status?.has_children ?? children.length > 0
 
   const sourcePayloads = await Promise.all(
     children.map((child) =>
-      fetch(`/api/sources/${child.id}`)
+      fetch(`/api/sources/${child.id}`, { cache: "no-store" })
         .then((res) => (res.ok ? res.json() : { sources: [] }))
         .catch(() => ({ sources: [] }))
     )
@@ -66,7 +68,7 @@ export async function fetchSetupStatusModel(opts?: {
 
   const childStates: ChildSetupState[] = children.map((child, index) => {
     const sources: SourceRow[] = sourcePayloads[index]?.sources || []
-    const linkedSources = sources.filter((s) => s.status === "verified")
+    const linkedSources = sources.filter((s) => s.status === "verified" || s.status === "linked")
     const pendingSources = sources.filter((s) => s.status === "needs_confirmation")
     return {
       childId: child.id,
@@ -98,8 +100,20 @@ export async function fetchSetupStatusModel(opts?: {
   const gmailConnected = integrations?.gmail?.status === "connected" || gmailByScope
   const driveConnected = integrations?.gdrive?.status === "connected" || driveByScope
 
-  // Integrations are optional if public school sources are linked.
-  const digestReady = hasChildren && hasLinkedSchoolSource
+  const digestReady =
+    setupData?.setup_status?.digest_ready ??
+    (hasChildren && hasLinkedSchoolSource)
+
+  console.debug("[setup-status] dashboard children data", {
+    childrenCount: children.length,
+    children,
+  })
+  console.debug("[setup-status] computed setup status", {
+    hasChildren,
+    hasSchoolText,
+    hasLinkedSchoolSource,
+    digestReady,
+  })
 
   return {
     hasChildren,

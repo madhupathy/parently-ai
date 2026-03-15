@@ -246,7 +246,7 @@ def fetch_school_sources_node(state: DigestState) -> DigestState:
 
         sources = session.query(SchoolSource).filter(
             SchoolSource.user_id == user_id,
-            SchoolSource.status == "verified",
+            SchoolSource.status.in_(("linked", "verified")),
         ).all()
 
         for source in sources:

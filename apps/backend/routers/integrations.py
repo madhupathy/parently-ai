@@ -25,6 +25,7 @@ SUPPORTED_PLATFORMS = ["gmail", "gdrive", "skyward", "classdojo", "brightwheel",
 
 class IntegrationConfigPayload(BaseModel):
     platform: str
+    granted_scopes: Optional[str] = None
     config: Dict[str, Any] = {}
 
 
@@ -39,9 +40,11 @@ def integrations_status(current_user: User = Depends(get_current_user)) -> dict[
         )
         result = {}
         for ui in user_integrations:
-            result[ui.platform] = {
+            key = ui.provider or ui.platform
+            result[key] = {
                 "status": ui.status,
                 "last_synced": ui.last_synced.isoformat() if ui.last_synced else None,
+                "granted_scopes": ui.granted_scopes,
                 "config": ui.config(),
             }
         return {"ok": True, "integrations": result}
@@ -60,21 +63,28 @@ def configure_integration(
         )
 
     with db.session_scope() as session:
+        provider = "google_drive" if payload.platform == "gdrive" else payload.platform
         integration = (
             session.query(UserIntegration)
-            .filter(UserIntegration.user_id == current_user.id, UserIntegration.platform == payload.platform)
+            .filter(UserIntegration.user_id == current_user.id, UserIntegration.provider == provider)
             .first()
         )
 
         if integration:
+            integration.platform = payload.platform
+            integration.provider = provider
             integration.config_json = json.dumps(payload.config)
             integration.status = "connected"
+            if payload.granted_scopes is not None:
+                integration.granted_scopes = payload.granted_scopes
         else:
             integration = UserIntegration(
                 user_id=current_user.id,
                 platform=payload.platform,
+                provider=provider,
                 config_json=json.dumps(payload.config),
                 status="connected",
+                granted_scopes=payload.granted_scopes,
             )
             session.add(integration)
 
@@ -89,9 +99,10 @@ def disconnect_integration(
 ) -> dict[str, object]:
     """Remove an integration for the current user."""
     with db.session_scope() as session:
+        provider = "google_drive" if platform == "gdrive" else platform
         integration = (
             session.query(UserIntegration)
-            .filter(UserIntegration.user_id == current_user.id, UserIntegration.platform == platform)
+            .filter(UserIntegration.user_id == current_user.id, UserIntegration.provider == provider)
             .first()
         )
         if integration:
