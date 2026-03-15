@@ -204,11 +204,11 @@ class UserIntegration(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
-    platform: Mapped[str] = mapped_column(String(50), nullable=False)  # backward-compatible alias
-    provider: Mapped[str] = mapped_column(String(50), nullable=False, default="gmail")
+    platform: Mapped[str] = mapped_column(String(64), nullable=False)  # backward-compatible alias
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, default="gmail")
     credentials_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # encrypted JSON
     config_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # platform-specific settings
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="not_connected")  # not_connected, connected, scope_missing, error
+    status: Mapped[str] = mapped_column(String(64), nullable=False, default="not_connected")  # not_connected, connected, scope_missing, reauthorization_required, error
     granted_scopes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # space-delimited oauth scopes
     last_synced: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

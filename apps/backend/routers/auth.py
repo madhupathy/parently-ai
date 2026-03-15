@@ -145,73 +145,91 @@ def sync_user(
             )
         )
 
-    with db.session_scope() as session:
-        user = session.query(User).filter(User.id == current_user.id).first()
-        if user:
-            if payload.name and payload.name != user.name:
-                user.name = payload.name
-            if payload.image and payload.image != user.avatar_url:
-                user.avatar_url = payload.image
-            if payload.provider and payload.provider != user.provider:
-                user.provider = payload.provider
+    try:
+        with db.session_scope() as session:
+            user = session.query(User).filter(User.id == current_user.id).first()
+            if user:
+                if payload.name and payload.name != user.name:
+                    user.name = payload.name
+                if payload.image and payload.image != user.avatar_url:
+                    user.avatar_url = payload.image
+                if payload.provider and payload.provider != user.provider:
+                    user.provider = payload.provider
 
-            # Persist Google OAuth tokens/scopes into integration storage for backend Gmail/Drive access.
-            if payload.provider == "google":
-                logger.info(
-                    "Auth sync request: user_id=%s provider=%s scopes=%s has_access=%s has_refresh=%s",
-                    user.id,
-                    payload.provider,
-                    payload.granted_scopes or "",
-                    bool(payload.access_token),
-                    bool(payload.refresh_token),
-                )
-                _upsert_google_integration(
-                    session,
-                    user_id=user.id,
-                    provider="gmail",
-                    scope=GMAIL_SCOPE,
-                    payload=payload,
-                )
-                _upsert_google_integration(
-                    session,
-                    user_id=user.id,
-                    provider="google_drive",
-                    scope=DRIVE_SCOPE,
-                    payload=payload,
-                )
-                rows = (
-                    session.query(UserIntegration)
-                    .filter(UserIntegration.user_id == user.id)
-                    .filter(UserIntegration.provider.in_(("gmail", "google_drive")))
-                    .all()
-                )
-                for row in rows:
-                    parsed = {}
-                    if row.credentials_json:
-                        try:
-                            parsed = json.loads(row.credentials_json)
-                        except Exception:
-                            parsed = {}
+                # Persist Google OAuth tokens/scopes into integration storage for backend Gmail/Drive access.
+                if payload.provider == "google":
                     logger.info(
-                        "Auth sync integration row: user_id=%s provider=%s status=%s has_access=%s has_refresh=%s scopes=%s token_uri=%s",
+                        "Auth sync request: user_id=%s provider=%s scopes=%s has_access=%s has_refresh=%s",
                         user.id,
-                        row.provider,
-                        row.status,
-                        bool(parsed.get("access_token")),
-                        bool(parsed.get("refresh_token")),
-                        row.granted_scopes or "",
-                        bool(parsed.get("token_uri")),
+                        payload.provider,
+                        payload.granted_scopes or "",
+                        bool(payload.access_token),
+                        bool(payload.refresh_token),
                     )
+                    _upsert_google_integration(
+                        session,
+                        user_id=user.id,
+                        provider="gmail",
+                        scope=GMAIL_SCOPE,
+                        payload=payload,
+                    )
+                    _upsert_google_integration(
+                        session,
+                        user_id=user.id,
+                        provider="google_drive",
+                        scope=DRIVE_SCOPE,
+                        payload=payload,
+                    )
+                    session.flush()
+                    rows = (
+                        session.query(UserIntegration)
+                        .filter(UserIntegration.user_id == user.id)
+                        .filter(UserIntegration.provider.in_(("gmail", "google_drive")))
+                        .all()
+                    )
+                    for row in rows:
+                        parsed = {}
+                        if row.credentials_json:
+                            try:
+                                parsed = json.loads(row.credentials_json)
+                            except Exception:
+                                parsed = {}
+                        logger.info(
+                            "Auth sync integration row: user_id=%s provider=%s status=%s has_access=%s has_refresh=%s scopes=%s token_uri=%s",
+                            user.id,
+                            row.provider,
+                            row.status,
+                            bool(parsed.get("access_token")),
+                            bool(parsed.get("refresh_token")),
+                            row.granted_scopes or "",
+                            bool(parsed.get("token_uri")),
+                        )
 
-        return {
-            "ok": True,
-            "user": {
-                "id": current_user.id,
-                "email": current_user.email,
-                "name": current_user.name,
-                "provider": current_user.provider,
+            return {
+                "ok": True,
+                "user": {
+                    "id": current_user.id,
+                    "email": current_user.email,
+                    "name": current_user.name,
+                    "provider": current_user.provider,
+                },
+            }
+    except Exception as exc:
+        logger.exception(
+            "Auth sync failed: user_id=%s provider=%s scopes_len=%s has_access=%s has_refresh=%s",
+            current_user.id,
+            payload.provider,
+            len(payload.granted_scopes or ""),
+            bool(payload.access_token),
+            bool(payload.refresh_token),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "auth_sync_persistence_failed",
+                "message": str(exc),
             },
-        }
+        ) from exc
 
 
 @router.get("/me")
