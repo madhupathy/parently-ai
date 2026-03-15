@@ -10,16 +10,7 @@ import {
 } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Calendar,
-  FileText,
-  AlertCircle,
-  ChevronRight,
-  ChevronDown,
-  RefreshCw,
-  Clock,
-  Loader2,
-} from "lucide-react"
+import { ChevronRight, ChevronDown, RefreshCw, Clock, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { UpgradeModal } from "@/components/upgrade-modal"
 import Link from "next/link"
@@ -31,6 +22,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { useSession } from "next-auth/react"
+import { fetchSetupStatusModel, SetupStatusModel } from "@/lib/setup-status"
 
 /* ── Types ────────────────────────────────────── */
 
@@ -59,10 +52,6 @@ interface DigestSummary {
   created_at: string
   item_count: number
   preview: string
-}
-
-interface ChildRow {
-  id: number
 }
 
 interface SetupModalState {
@@ -120,6 +109,7 @@ function friendlyDate(dateStr: string | null) {
 /* ── Component ────────────────────────────────── */
 
 export function DailyDigest() {
+  const { data: session } = useSession()
   const [loading, setLoading] = useState(false)
   const [showUpgrade, setShowUpgrade] = useState(false)
   const [todayDigest, setTodayDigest] = useState<DigestFull | null>(null)
@@ -129,9 +119,8 @@ export function DailyDigest() {
   const [expandedPastDigest, setExpandedPastDigest] = useState<DigestFull | null>(null)
   const [loadingPast, setLoadingPast] = useState(false)
   const [initialLoad, setInitialLoad] = useState(true)
+  const [setupStatus, setSetupStatus] = useState<SetupStatusModel | null>(null)
   const [setupLoading, setSetupLoading] = useState(true)
-  const [childrenCount, setChildrenCount] = useState(0)
-  const [hasSchoolSource, setHasSchoolSource] = useState(false)
   const [setupModal, setSetupModal] = useState<SetupModalState>({
     open: false,
     title: "",
@@ -163,41 +152,24 @@ export function DailyDigest() {
   const fetchSetupStatus = useCallback(async () => {
     setSetupLoading(true)
     try {
-      const childRes = await fetch("/api/children")
-      if (!childRes.ok) return
-      const childData = await childRes.json()
-      const children: ChildRow[] = childData?.children || []
-      setChildrenCount(children.length)
-
-      if (children.length === 0) {
-        setHasSchoolSource(false)
-        return
-      }
-
-      const sourceResponses = await Promise.all(
-        children.map((child) =>
-          fetch(`/api/sources/${child.id}`)
-            .then((res) => (res.ok ? res.json() : { sources: [] }))
-            .catch(() => ({ sources: [] }))
-        )
-      )
-      const hasAnySource = sourceResponses.some(
-        (result) => Array.isArray(result?.sources) && result.sources.length > 0
-      )
-      setHasSchoolSource(hasAnySource)
+      const model = await fetchSetupStatusModel({
+        provider: (session as any)?.provider,
+        grantedScopes: (session as any)?.grantedScopes,
+      })
+      setSetupStatus(model)
     } finally {
       setSetupLoading(false)
     }
-  }, [])
+  }, [session])
 
   useEffect(() => {
     fetchSetupStatus()
   }, [fetchSetupStatus])
 
-  const setupIncomplete = childrenCount === 0 || !hasSchoolSource
+  const setupIncomplete = !setupStatus?.hasChildren
   const showOnboardingEmptyState = !todayDigest && !setupLoading && setupIncomplete
 
-  const openSetupPrompt = (kind: "child" | "school" | "integrations") => {
+  const openSetupPrompt = (kind: "child" | "integrations") => {
     if (kind === "child") {
       setSetupModal({
         open: true,
@@ -208,26 +180,16 @@ export function DailyDigest() {
       })
       return
     }
-    if (kind === "school") {
-      setSetupModal({
-        open: true,
-        title: "Set up school details to generate your first digest",
-        description: "Connect at least one school source so Parently can gather updates.",
-        ctaLabel: "Set Up School",
-        ctaHref: "/settings?tab=children",
-      })
-      return
-    }
     setSetupModal({
       open: true,
-      title: "Connect an integration to generate richer digests",
-      description: "Connect Gmail, calendar, or another source to populate your digest.",
-      ctaLabel: "Set Up Integrations",
+      title: "You’re signed in with Google. Grant Gmail access to include school emails in digests.",
+      description: "You can continue with school sources now, or grant Gmail/Drive access for richer digests.",
+      ctaLabel: "Open Integrations",
       ctaHref: "/settings?tab=integrations",
     })
   }
 
-  const parseSetupErrorKind = (body: any): "child" | "school" | "integrations" | null => {
+  const parseSetupErrorKind = (body: any): "child" | "integrations" | null => {
     const detail = body?.detail
     const message =
       typeof detail === "string"
@@ -240,11 +202,6 @@ export function DailyDigest() {
     const normalized = message.toLowerCase()
 
     if (normalized.includes("no children") || normalized.includes("child")) return "child"
-    if (
-      normalized.includes("no school") ||
-      normalized.includes("school source") ||
-      normalized.includes("source")
-    ) return "school"
     if (normalized.includes("no integration") || normalized.includes("integration")) {
       return "integrations"
     }
@@ -252,12 +209,8 @@ export function DailyDigest() {
   }
 
   const handleRunDigest = async () => {
-    if (childrenCount === 0) {
+    if (!setupStatus?.hasChildren) {
       openSetupPrompt("child")
-      return
-    }
-    if (!hasSchoolSource) {
-      openSetupPrompt("school")
       return
     }
 
@@ -380,11 +333,9 @@ export function DailyDigest() {
                   <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
                   {loading
                     ? "Running..."
-                    : childrenCount === 0
+                    : !setupStatus?.hasChildren
                       ? "Add Child"
-                      : !hasSchoolSource
-                        ? "Set Up School"
-                        : "Run Digest"}
+                      : "Run Digest"}
                 </Button>
               )}
             </div>
@@ -402,14 +353,11 @@ export function DailyDigest() {
                 You&apos;re one step away from your first digest
               </p>
               <p className="text-sm text-muted-foreground">
-                Add your child and school details so Parently can build your daily digest.
+                Add your child first and Parently will start creating daily digests.
               </p>
               <div className="flex flex-wrap justify-center gap-2 pt-1">
                 <Button asChild size="sm">
                   <Link href="/settings?tab=children">Add Child</Link>
-                </Button>
-                <Button asChild size="sm" variant="outline">
-                  <Link href="/settings?tab=children">Set Up School</Link>
                 </Button>
               </div>
             </div>

@@ -22,6 +22,7 @@ class ChildCreate(BaseModel):
     name: str
     grade: Optional[str] = None
     school_name: Optional[str] = None
+    school_domain: Optional[str] = None
     teacher_name: Optional[str] = None
     birthdate: Optional[str] = None
 
@@ -30,6 +31,7 @@ class ChildUpdate(BaseModel):
     name: Optional[str] = None
     grade: Optional[str] = None
     school_name: Optional[str] = None
+    school_domain: Optional[str] = None
     teacher_name: Optional[str] = None
     birthdate: Optional[str] = None
 
@@ -47,6 +49,7 @@ def list_children(current_user: User = Depends(get_current_user)) -> Dict[str, A
                     "name": c.name,
                     "grade": c.grade,
                     "school_name": c.school_name,
+                    "school_domain": c.school_domain,
                     "teacher_name": c.teacher_name,
                     "birthdate": c.birthdate,
                     "photo_url": c.photo_url,
@@ -68,6 +71,7 @@ def create_child(
             name=body.name,
             grade=body.grade,
             school_name=body.school_name,
+            school_domain=body.school_domain,
             teacher_name=body.teacher_name,
             birthdate=body.birthdate,
         )
@@ -99,6 +103,8 @@ def update_child(
             child.grade = body.grade
         if body.school_name is not None:
             child.school_name = body.school_name
+        if body.school_domain is not None:
+            child.school_domain = body.school_domain
         if body.teacher_name is not None:
             child.teacher_name = body.teacher_name
         if body.birthdate is not None:

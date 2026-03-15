@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { Card } from "@/components/ui/card"
-import { Calendar, FileText, CheckCircle2, Zap } from "lucide-react"
+import { Calendar, Users, CheckCircle2, Zap } from "lucide-react"
 
 function useCountUp(target: number, duration: number = 800) {
   const [count, setCount] = useState(0)
@@ -67,8 +67,8 @@ export function QuickStats() {
     {
       label: "Children",
       value: String(kids),
-      emoji: "�",
-      icon: FileText,
+      emoji: "👶",
+      icon: Users,
       gradient: "from-pink-500/15 via-pink-500/5 to-transparent",
       iconBg: "bg-pink-500/10 text-pink-600 dark:text-pink-400",
       border: "border-pink-200/50 dark:border-pink-800/30",
@@ -102,8 +102,8 @@ export function QuickStats() {
               <span className="text-xl">{stat.emoji}</span>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
-              <p className="text-3xl font-bold tabular-nums text-foreground">
+              <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">{stat.label}</p>
+              <p className="text-[2rem] font-bold tabular-nums text-foreground leading-none">
                 {stat.value}
               </p>
             </div>

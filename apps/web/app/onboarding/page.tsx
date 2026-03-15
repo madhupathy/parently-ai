@@ -115,6 +115,14 @@ export default function OnboardingPage() {
               }),
             })
             const discoverData = await discoverRes.json()
+            if (discoverData?.result?.candidates?.length) {
+              const firstConfirmable = discoverData.result.candidates.find(
+                (candidate: any) => candidate.source_id && candidate.status === "needs_confirmation"
+              )
+              if (firstConfirmable?.source_id) {
+                await fetch(`/api/sources/${firstConfirmable.source_id}/confirm`, { method: "POST" })
+              }
+            }
             updated[i] = {
               ...updated[i],
               discoveryJobId: discoverData.job_id,

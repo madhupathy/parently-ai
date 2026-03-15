@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import { useSession, signOut } from "next-auth/react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useSession, signIn, signOut } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -37,6 +37,7 @@ import {
   Save,
   Loader2,
 } from "lucide-react"
+import { fetchSetupStatusModel } from "@/lib/setup-status"
 
 /* ─── Types ─────────────────────────────────────────── */
 
@@ -45,7 +46,30 @@ interface ChildData {
   name: string
   grade: string
   school_name: string
+  school_domain?: string
   teacher_name: string
+}
+
+interface SourceData {
+  id: number
+  verified_name: string | null
+  homepage_url: string | null
+  calendar_page_url: string | null
+  confidence_score: number | null
+  status: string
+  state?: string
+  ics_urls: string[]
+  rss_urls: string[]
+  pdf_urls: string[]
+}
+
+interface SchoolSuggestion {
+  name: string
+  district_site_url?: string | null
+  homepage_url?: string | null
+  calendar_page_url?: string | null
+  school_domain?: string | null
+  query_text: string
 }
 
 interface SearchProfile {
@@ -99,14 +123,31 @@ export default function SettingsPage() {
   const [childrenLoading, setChildrenLoading] = useState(true)
   const [childSaving, setChildSaving] = useState(false)
   const [profiles, setProfiles] = useState<Record<number, SearchProfile>>({})
+  const [childSources, setChildSources] = useState<Record<number, SourceData[]>>({})
   const [expandedChild, setExpandedChild] = useState<number | null>(null)
   const [profileSaving, setProfileSaving] = useState(false)
+  const [suggestions, setSuggestions] = useState<Record<number, SchoolSuggestion[]>>({})
+  const [suggestionsOpen, setSuggestionsOpen] = useState<Record<number, boolean>>({})
+  const [suggestingRow, setSuggestingRow] = useState<number | null>(null)
 
   const loadChildren = useCallback(async () => {
     try {
       const res = await fetch("/api/children")
       const data = await res.json()
-      if (data.ok) setChildren(data.children)
+      if (data.ok) {
+        const loadedChildren = data.children || []
+        setChildren(loadedChildren)
+        const sourcesEntries = await Promise.all(
+          loadedChildren
+            .filter((child: ChildData) => child.id)
+            .map(async (child: ChildData) => {
+              const sourceRes = await fetch(`/api/sources/${child.id}`)
+              const sourceData = await sourceRes.json()
+              return [child.id!, sourceData?.sources || []] as const
+            })
+        )
+        setChildSources(Object.fromEntries(sourcesEntries))
+      }
     } finally {
       setChildrenLoading(false)
     }
@@ -182,11 +223,84 @@ export default function SettingsPage() {
     setChildren(updated)
   }
 
+  const discoverSchoolSuggestions = useCallback(async (index: number, query: string) => {
+    const normalized = query.trim()
+    if (normalized.length < 3) {
+      setSuggestions((prev) => ({ ...prev, [index]: [] }))
+      return
+    }
+    setSuggestingRow(index)
+    try {
+      const res = await fetch("/api/sources/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: normalized, limit: 6 }),
+      })
+      const data = await res.json()
+      setSuggestions((prev) => ({ ...prev, [index]: data?.suggestions || [] }))
+      setSuggestionsOpen((prev) => ({ ...prev, [index]: true }))
+    } finally {
+      setSuggestingRow(null)
+    }
+  }, [])
+
+  const syncDiscoveryForChild = async (childId: number, schoolQuery: string) => {
+    const discoverRes = await fetch("/api/sources/discover", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ child_id: childId, school_query: schoolQuery }),
+    })
+    const discoverData = await discoverRes.json()
+    if (discoverData?.result?.candidates?.length) {
+      const firstConfirmable = discoverData.result.candidates.find(
+        (candidate: any) => candidate.source_id && candidate.status === "needs_confirmation"
+      )
+      if (firstConfirmable?.source_id) {
+        await fetch(`/api/sources/${firstConfirmable.source_id}/confirm`, { method: "POST" })
+      }
+    }
+    const sourceRes = await fetch(`/api/sources/${childId}`)
+    const sourceData = await sourceRes.json()
+    setChildSources((prev) => ({ ...prev, [childId]: sourceData?.sources || [] }))
+  }
+
+  const selectSchoolSuggestion = async (index: number, suggestion: SchoolSuggestion) => {
+    const updated = [...children]
+    const child = updated[index]
+    updated[index] = {
+      ...child,
+      school_name: suggestion.name || child.school_name,
+      school_domain: suggestion.school_domain || child.school_domain,
+    }
+    setChildren(updated)
+    setSuggestionsOpen((prev) => ({ ...prev, [index]: false }))
+
+    if (!child.id) {
+      return
+    }
+    setChildSaving(true)
+    try {
+      await fetch(`/api/children/${child.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...updated[index],
+          school_name: suggestion.name || updated[index].school_name,
+          school_domain: suggestion.school_domain || updated[index].school_domain || null,
+        }),
+      })
+      await syncDiscoveryForChild(child.id, suggestion.query_text || suggestion.name)
+    } finally {
+      setChildSaving(false)
+    }
+  }
+
   const saveChild = async (index: number) => {
     const child = children[index]
     if (!child.name.trim()) return
     setChildSaving(true)
     try {
+      let childId = child.id
       if (child.id) {
         await fetch(`/api/children/${child.id}`, {
           method: "PUT",
@@ -204,7 +318,13 @@ export default function SettingsPage() {
           const updated = [...children]
           updated[index] = { ...updated[index], id: data.child_id }
           setChildren(updated)
+          childId = data.child_id
         }
+      }
+      if (childId && (child.school_name || "").trim().length >= 3) {
+        await syncDiscoveryForChild(childId, child.school_name.trim())
+      } else if (childId) {
+        setChildSources((prev) => ({ ...prev, [childId]: [] }))
       }
     } finally {
       setChildSaving(false)
@@ -215,6 +335,11 @@ export default function SettingsPage() {
     const child = children[index]
     if (child.id) {
       await fetch(`/api/children/${child.id}`, { method: "DELETE" })
+      setChildSources((prev) => {
+        const next = { ...prev }
+        delete next[child.id!]
+        return next
+      })
     }
     setChildren(children.filter((_, i) => i !== index))
   }
@@ -255,6 +380,7 @@ export default function SettingsPage() {
   /* ─── Billing state ────────────────────────────────── */
   const [billing, setBilling] = useState<BillingData | null>(null)
   const [billingError, setBillingError] = useState<string | null>(null)
+  const [setupStatus, setSetupStatus] = useState<any>(null)
 
   useEffect(() => {
     fetch("/api/billing/status")
@@ -264,6 +390,13 @@ export default function SettingsPage() {
       })
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    fetchSetupStatusModel({
+      provider: (session as any)?.provider,
+      grantedScopes: (session as any)?.grantedScopes,
+    }).then(setSetupStatus).catch(() => {})
+  }, [session])
 
   useEffect(() => {
     const tab = searchParams.get("tab")
@@ -297,18 +430,30 @@ export default function SettingsPage() {
   }
 
   /* ─── Integration config ───────────────────────────── */
-  const integrations = [
-    {
-      id: "gmail", name: "Gmail", description: "Scan school-related emails automatically",
-      icon: Mail, color: "bg-red-500/10 text-red-600", connected: true,
-      configFields: [{ label: "Email filter query", placeholder: "label:School newer_than:7d", key: "gmail_query" }],
-    },
-    {
-      id: "gdrive", name: "Google Drive", description: "Sync documents from a shared folder",
-      icon: FolderOpen, color: "bg-yellow-500/10 text-yellow-600", connected: false,
-      configFields: [{ label: "Folder URL or ID", placeholder: "https://drive.google.com/drive/folders/...", key: "gdrive_folder" }],
-    },
-  ]
+  const integrations = useMemo(() => {
+    const googleSignedIn = ((session as any)?.provider || "") === "google"
+    const gmailConnected = Boolean(setupStatus?.gmailConnected)
+    const driveConnected = Boolean(setupStatus?.driveConnected)
+
+    return [
+      {
+        id: "gmail", name: "Gmail", description: "Scan school-related emails automatically",
+        icon: Mail, color: "bg-red-500/10 text-red-600", connected: gmailConnected,
+        cta: gmailConnected ? "Connected" : googleSignedIn ? "Grant Gmail access" : "Connect Gmail",
+        helper: gmailConnected
+          ? "Connected via Google sign-in."
+          : "You’re signed in with Google. Grant Gmail access to include school emails in digests.",
+      },
+      {
+        id: "gdrive", name: "Google Drive", description: "Sync documents from a shared folder",
+        icon: FolderOpen, color: "bg-yellow-500/10 text-yellow-600", connected: driveConnected,
+        cta: driveConnected ? "Connected" : googleSignedIn ? "Grant Google Drive access" : "Connect Google Drive",
+        helper: driveConnected
+          ? "Connected via Google sign-in."
+          : "Grant Google Drive access to include permission slips and documents.",
+      },
+    ]
+  }, [session, setupStatus])
 
   return (
     <div className="space-y-6">
@@ -326,14 +471,16 @@ export default function SettingsPage() {
           router.replace(`/settings?tab=${value}`)
         }}
       >
-        <TabsList className="flex-wrap">
-          <TabsTrigger value="profile">Profile</TabsTrigger>
-          <TabsTrigger value="children">Children</TabsTrigger>
-          <TabsTrigger value="integrations">Integrations</TabsTrigger>
-          <TabsTrigger value="digest">Digest</TabsTrigger>
-          <TabsTrigger value="notifications">Notifications</TabsTrigger>
-          <TabsTrigger value="billing">Billing</TabsTrigger>
-        </TabsList>
+        <div className="mb-2 overflow-x-auto pb-2">
+          <TabsList className="w-max min-w-full flex-nowrap gap-1">
+            <TabsTrigger className="shrink-0" value="profile">Profile</TabsTrigger>
+            <TabsTrigger className="shrink-0" value="children">Children</TabsTrigger>
+            <TabsTrigger className="shrink-0" value="integrations">Integrations</TabsTrigger>
+            <TabsTrigger className="shrink-0" value="digest">Digest</TabsTrigger>
+            <TabsTrigger className="shrink-0" value="notifications">Notifications</TabsTrigger>
+            <TabsTrigger className="shrink-0" value="billing">Billing</TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* ── Profile Tab ─────────────────────────────── */}
         <TabsContent value="profile">
@@ -396,6 +543,27 @@ export default function SettingsPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
+              {setupStatus && (
+                <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+                  {!setupStatus.hasChildren ? (
+                    <p className="text-sm text-muted-foreground">
+                      Add your child first to start school setup.
+                    </p>
+                  ) : !setupStatus.hasLinkedSchoolSource && setupStatus.hasPendingSchoolSource ? (
+                    <p className="text-sm text-muted-foreground">
+                      We found possible school sources. Confirm them to finish setup.
+                    </p>
+                  ) : !setupStatus.hasLinkedSchoolSource ? (
+                    <p className="text-sm text-muted-foreground">
+                      Select or confirm your child’s school so Parently can connect calendar and website updates.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-emerald-700 dark:text-emerald-400">
+                      School setup complete. Your child has linked school sources.
+                    </p>
+                  )}
+                </div>
+              )}
               {childrenLoading ? (
                 <div className="flex items-center justify-center py-8 text-muted-foreground">
                   <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading…
@@ -459,15 +627,56 @@ export default function SettingsPage() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="space-y-1.5">
+                      <div className="space-y-1.5 relative">
                         <Label className="flex items-center gap-1">
                           <School className="h-3.5 w-3.5" /> School
                         </Label>
                         <Input
                           placeholder="e.g. Lincoln Elementary"
                           value={child.school_name}
-                          onChange={(e) => updateChildField(index, "school_name", e.target.value)}
+                          onFocus={() =>
+                            setSuggestionsOpen((prev) => ({ ...prev, [index]: true }))
+                          }
+                          onBlur={() =>
+                            setTimeout(
+                              () => setSuggestionsOpen((prev) => ({ ...prev, [index]: false })),
+                              120
+                            )
+                          }
+                          onChange={(e) => {
+                            const nextValue = e.target.value
+                            updateChildField(index, "school_name", nextValue)
+                            discoverSchoolSuggestions(index, nextValue)
+                          }}
                         />
+                        <p className="text-[10px] text-muted-foreground">
+                          Start typing to discover and link recognized schools.
+                        </p>
+                        {suggestionsOpen[index] && (
+                          <div className="absolute z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-border bg-background shadow-lg">
+                            {suggestingRow === index && (
+                              <div className="px-3 py-2 text-xs text-muted-foreground">Searching schools...</div>
+                            )}
+                            {(suggestions[index] || []).map((suggestion, suggestionIndex) => (
+                              <button
+                                key={`${suggestion.name}-${suggestionIndex}`}
+                                type="button"
+                                className="w-full border-b border-border/40 px-3 py-2 text-left hover:bg-muted/40 last:border-b-0"
+                                onMouseDown={() => selectSchoolSuggestion(index, suggestion)}
+                              >
+                                <p className="text-sm font-medium">{suggestion.name}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {suggestion.school_domain || suggestion.homepage_url || "School source"}
+                                </p>
+                              </button>
+                            ))}
+                            {(suggestions[index] || []).length === 0 && suggestingRow !== index && (
+                              <div className="px-3 py-2 text-xs text-muted-foreground">
+                                Keep typing to see school matches.
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <div className="space-y-1.5">
                         <Label className="flex items-center gap-1">
@@ -480,6 +689,58 @@ export default function SettingsPage() {
                         />
                       </div>
                     </div>
+
+                    {child.id && (
+                      <div className="space-y-2 rounded-lg border border-border/50 bg-background/60 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          School Source Status
+                        </p>
+                        {(childSources[child.id] || []).length === 0 ? (
+                          <p className="text-sm text-muted-foreground">
+                            Select or confirm your child&apos;s school so Parently can connect calendar and website updates.
+                          </p>
+                        ) : (
+                          <div className="space-y-2">
+                            {(childSources[child.id] || []).map((source) => (
+                              <div key={source.id} className="rounded-md border border-border/60 p-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-sm font-medium">
+                                    {source.verified_name || child.school_name || "School source"}
+                                  </p>
+                                  {source.status === "verified" ? (
+                                    <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+                                      Linked
+                                    </Badge>
+                                  ) : (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={async () => {
+                                        await fetch(`/api/sources/${source.id}/confirm`, { method: "POST" })
+                                        if (child.id) {
+                                          const sourceRes = await fetch(`/api/sources/${child.id}`)
+                                          const sourceData = await sourceRes.json()
+                                          setChildSources((prev) => ({
+                                            ...prev,
+                                            [child.id!]: sourceData?.sources || [],
+                                          }))
+                                        }
+                                      }}
+                                    >
+                                      Confirm source
+                                    </Button>
+                                  )}
+                                </div>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  Website: {source.homepage_url || "Not found"} | Calendar:{" "}
+                                  {source.calendar_page_url || source.ics_urls?.[0] || source.pdf_urls?.[0] || "Not found"}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Search Profile Section */}
                     {child.id && (
@@ -602,28 +863,28 @@ export default function SettingsPage() {
                         <CheckCircle2 className="h-3 w-3" /> Connected
                       </Badge>
                     ) : (
-                      <Button size="sm">
-                        <ExternalLink className="mr-1 h-3.5 w-3.5" /> Connect
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          signIn("google", {
+                            callbackUrl: "/settings?tab=integrations",
+                            prompt: "consent",
+                            scope:
+                              integration.id === "gmail"
+                                ? "openid email profile https://www.googleapis.com/auth/gmail.readonly"
+                                : "openid email profile https://www.googleapis.com/auth/drive.readonly",
+                            access_type: "offline",
+                          })
+                        }
+                      >
+                        <ExternalLink className="mr-1 h-3.5 w-3.5" /> {integration.cta}
                       </Button>
                     )}
                   </div>
                 </CardHeader>
-                {integration.configFields.length > 0 && (
-                  <CardContent className="space-y-3">
-                    <Separator />
-                    {integration.configFields.map((field) => (
-                      <div key={field.key} className="space-y-1.5">
-                        <Label htmlFor={field.key}>{field.label}</Label>
-                        <Input
-                          id={field.key}
-                          type={(field as any).type || "text"}
-                          placeholder={field.placeholder}
-                        />
-                      </div>
-                    ))}
-                    <Button size="sm" variant="outline">Save Configuration</Button>
-                  </CardContent>
-                )}
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">{integration.helper}</p>
+                </CardContent>
               </Card>
             ))}
           </div>

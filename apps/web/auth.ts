@@ -39,6 +39,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         t.accessToken = account.access_token
         t.refreshToken = account.refresh_token
         t.provider = account.provider
+        t.grantedScopes = account.scope || t.grantedScopes
       }
       return t
     },
@@ -46,6 +47,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const t = token as any
       ;(session as any).accessToken = t.accessToken
       ;(session as any).provider = t.provider
+      ;(session as any).grantedScopes = t.grantedScopes
       ;(session as any).jwt = t
       return session
     },

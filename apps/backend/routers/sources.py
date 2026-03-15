@@ -14,6 +14,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -42,6 +43,44 @@ class ConfirmRequest(BaseModel):
     pass  # empty body — just the POST action
 
 
+class SuggestRequest(BaseModel):
+    query: str
+    limit: int = 6
+
+
+# ---------------------------------------------------------------------------
+# POST /sources/suggest
+# ---------------------------------------------------------------------------
+
+@router.post("/suggest")
+def suggest_schools(
+    payload: SuggestRequest,
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Return school suggestions without persisting/linking any source."""
+    query = (payload.query or "").strip()
+    if len(query) < 3:
+        return {"ok": True, "suggestions": []}
+
+    from services.school_discovery_llm import discover_school_candidates
+
+    candidates = discover_school_candidates(query)[: max(1, min(payload.limit, 10))]
+    suggestions = []
+    for c in candidates:
+        homepage = c.get("homepage_url")
+        suggestions.append(
+            {
+                "name": c.get("name"),
+                "district_site_url": c.get("district_site_url"),
+                "homepage_url": homepage,
+                "calendar_page_url": c.get("calendar_page_url"),
+                "school_domain": urlparse(homepage).netloc if homepage else None,
+                "query_text": query,
+            }
+        )
+    return {"ok": True, "suggestions": suggestions}
+
+
 # ---------------------------------------------------------------------------
 # POST /sources/discover
 # ---------------------------------------------------------------------------
@@ -60,6 +99,9 @@ def discover_school(
         ).first()
         if not child:
             raise HTTPException(status_code=404, detail="Child not found")
+
+        # A new school selection should replace stale source links for this child.
+        _clear_existing_sources_for_child(session, current_user.id, payload.child_id)
 
         # Create discovery job
         job = DiscoveryJob(
@@ -309,37 +351,49 @@ def _persist_source(
         session.flush()
         source_id = source.id
 
-        # If verified, create user_integrations
-        if status == "verified":
+        # Create/update child-specific public source integration state.
+        if status in ("verified", "needs_confirmation"):
             _ensure_integrations(session, source)
 
     return source_id
 
 
 def _ensure_integrations(session: Any, source: SchoolSource) -> None:
-    """Create public_calendar and public_website user_integrations if not present."""
+    """Upsert public source integrations for a specific child/source."""
     for platform in ("public_calendar", "public_website"):
-        existing = session.query(UserIntegration).filter(
+        all_for_platform = session.query(UserIntegration).filter(
             UserIntegration.user_id == source.user_id,
             UserIntegration.platform == platform,
-        ).first()
+        ).all()
+        existing = None
+        for row in all_for_platform:
+            cfg = row.config()
+            if cfg.get("child_id") == source.child_id:
+                existing = row
+                break
+
+        integration_status = "connected" if source.status == "verified" else "pending_confirmation"
+        integration_config = {
+            "school_source_id": source.id,
+            "child_id": source.child_id,
+            "homepage_url": source.homepage_url,
+            "calendar_page_url": source.calendar_page_url,
+            "status": source.status,
+        }
         if not existing:
             session.add(UserIntegration(
                 user_id=source.user_id,
                 platform=platform,
-                status="connected",
-                config_json=json.dumps({
-                    "school_source_id": source.id,
-                    "child_id": source.child_id,
-                    "homepage_url": source.homepage_url,
-                }),
+                status=integration_status,
+                config_json=json.dumps(integration_config),
             ))
+        else:
+            existing.status = integration_status
+            existing.config_json = json.dumps(integration_config)
 
 
 def _update_child_from_best_source(child_id: int) -> None:
     """Auto-populate child.school_name and school_domain from the top verified source."""
-    from urllib.parse import urlparse
-
     with db.session_scope() as session:
         best = session.query(SchoolSource).filter(
             SchoolSource.child_id == child_id,
@@ -361,6 +415,26 @@ def _update_child_from_best_source(child_id: int) -> None:
                 child.school_domain = domain
 
 
+def _clear_existing_sources_for_child(session: Any, user_id: int, child_id: int) -> None:
+    """Remove stale school source links/integrations before re-discovery for this child."""
+    existing_sources = session.query(SchoolSource).filter(
+        SchoolSource.user_id == user_id,
+        SchoolSource.child_id == child_id,
+    ).all()
+    source_ids = {s.id for s in existing_sources}
+    for source in existing_sources:
+        session.delete(source)
+
+    integrations = session.query(UserIntegration).filter(
+        UserIntegration.user_id == user_id,
+        UserIntegration.platform.in_(("public_calendar", "public_website")),
+    ).all()
+    for integration in integrations:
+        cfg = integration.config()
+        if cfg.get("child_id") == child_id or cfg.get("school_source_id") in source_ids:
+            session.delete(integration)
+
+
 def _finish_job(job_id: int, status: str, result: Dict[str, Any]) -> None:
     """Update a DiscoveryJob with final status and result."""
     with db.session_scope() as session:
@@ -372,6 +446,13 @@ def _finish_job(job_id: int, status: str, result: Dict[str, Any]) -> None:
 
 
 def _serialize_source(source: SchoolSource) -> Dict[str, Any]:
+    if source.status == "verified":
+        state = "linked"
+    elif source.status == "needs_confirmation":
+        state = "discovered_needs_confirmation"
+    else:
+        state = "failed"
+
     return {
         "id": source.id,
         "child_id": source.child_id,
@@ -385,6 +466,7 @@ def _serialize_source(source: SchoolSource) -> Dict[str, Any]:
         "pdf_urls": source.pdf_urls(),
         "confidence_score": source.confidence_score,
         "status": source.status,
+        "state": state,
         "created_at": source.created_at.isoformat() if source.created_at else None,
         "last_ingested_at": source.last_ingested_at.isoformat() if source.last_ingested_at else None,
     }
