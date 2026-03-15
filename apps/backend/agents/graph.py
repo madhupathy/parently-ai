@@ -209,7 +209,11 @@ def parse_pdfs_node(state: DigestState) -> DigestState:
 def rag_retrieve_node(state: DigestState) -> DigestState:
     logger.info("Running RAG retrieval")
     query = state.user_context.get("query") or "latest school updates"
-    state.retrieved_context = rag_store.retrieve(query)
+    try:
+        state.retrieved_context = rag_store.retrieve(query)
+    except Exception as exc:
+        logger.warning("RAG retrieval failed; continuing digest without RAG context: %s", exc)
+        state.retrieved_context = []
     return state
 
 

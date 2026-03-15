@@ -17,6 +17,12 @@ from .models import Document, DocumentChunk, Embedding
 
 logger = logging.getLogger(__name__)
 
+ACTIVE_EMBEDDING_PROVIDER = "openai"
+ACTIVE_EMBEDDING_MODEL = "text-embedding-3-small"
+ACTIVE_EMBEDDING_DIMENSION = 1536
+FALLBACK_EMBEDDING_PROVIDER = "deterministic-fallback"
+FALLBACK_EMBEDDING_MODEL = "cheap-hash-v1"
+
 
 def chunk_text(text: str, chunk_size: int, overlap: int) -> List[str]:
     """Chunk text with configurable overlap."""
@@ -54,7 +60,7 @@ def cosine_similarity(vec_a: Sequence[float], vec_b: Sequence[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
-def _cheap_embedding(text: str, dim: int = 256) -> List[float]:
+def _cheap_embedding(text: str, dim: int = ACTIVE_EMBEDDING_DIMENSION) -> List[float]:
     vec = [0.0] * dim
     for idx, ch in enumerate(text):
         vec[idx % dim] += (ord(ch) % 31) / 31.0
@@ -62,28 +68,33 @@ def _cheap_embedding(text: str, dim: int = 256) -> List[float]:
     return [v / norm for v in vec]
 
 
-def embed_texts(texts: Sequence[str]) -> List[List[float]]:
+def _embed_texts_with_metadata(
+    texts: Sequence[str],
+) -> Tuple[List[List[float]], Dict[str, object]]:
     settings = get_settings()
-    if settings.gemini_api_key:
-        try:
-            import google.generativeai as genai
-
-            genai.configure(api_key=settings.gemini_api_key)
-            result = genai.embed_content(
-                model="models/text-embedding-004",
-                content=list(texts),
-            )
-            return result["embedding"]
-        except Exception as exc:
-            logger.warning("Falling back from Gemini embeddings: %s", exc)
     if settings.openai_api_key:
         try:
             client = OpenAI(api_key=settings.openai_api_key)
-            response = client.embeddings.create(model="text-embedding-3-small", input=list(texts))
-            return [record.embedding for record in response.data]
+            response = client.embeddings.create(model=ACTIVE_EMBEDDING_MODEL, input=list(texts))
+            vectors = [record.embedding for record in response.data]
+            return vectors, {
+                "embedding_provider": ACTIVE_EMBEDDING_PROVIDER,
+                "embedding_model": ACTIVE_EMBEDDING_MODEL,
+                "embedding_dimension": len(vectors[0]) if vectors else ACTIVE_EMBEDDING_DIMENSION,
+            }
         except Exception as exc:  # pragma: no cover - network path
             logger.warning("Falling back from OpenAI embeddings: %s", exc)
-    return [_cheap_embedding(text) for text in texts]
+    vectors = [_cheap_embedding(text) for text in texts]
+    return vectors, {
+        "embedding_provider": FALLBACK_EMBEDDING_PROVIDER,
+        "embedding_model": FALLBACK_EMBEDDING_MODEL,
+        "embedding_dimension": ACTIVE_EMBEDDING_DIMENSION,
+    }
+
+
+def embed_texts(texts: Sequence[str]) -> List[List[float]]:
+    vectors, _ = _embed_texts_with_metadata(texts)
+    return vectors
 
 
 def _vector_literal(vector: Sequence[float]) -> str:
@@ -106,8 +117,17 @@ def add_document(
     settings = get_settings()
     db = get_db()
     chunks = chunk_text(text, settings.rag_chunk_size, settings.rag_chunk_overlap)
-    embeddings = embed_texts(chunks) if chunks else []
+    embeddings, embedding_meta = _embed_texts_with_metadata(chunks) if chunks else ([], {
+        "embedding_provider": ACTIVE_EMBEDDING_PROVIDER,
+        "embedding_model": ACTIVE_EMBEDDING_MODEL,
+        "embedding_dimension": ACTIVE_EMBEDDING_DIMENSION,
+    })
     with db.session_scope() as session:
+        doc_metadata: Dict[str, object] = {}
+        if text:
+            doc_metadata = {
+                **embedding_meta,
+            }
         document = Document(
             user_id=user_id,
             child_id=child_id,
@@ -120,6 +140,7 @@ def add_document(
             text=text,
             chunks_json=json.dumps(chunks),
             embeddings_json=json.dumps(embeddings),
+            metadata_json=json.dumps(doc_metadata) if doc_metadata else None,
         )
         session.add(document)
         session.flush()
@@ -167,6 +188,14 @@ def retrieve(query: str, top_k: Optional[int] = None) -> List[Dict[str, object]]
     limit = top_k or settings.rag_top_k
     db = get_db()
     query_embed = embed_texts([query])[0]
+    query_dim = len(query_embed)
+    if query_dim != ACTIVE_EMBEDDING_DIMENSION:
+        logger.warning(
+            "Skipping RAG retrieval due to query dimension mismatch (got=%d expected=%d)",
+            query_dim,
+            ACTIVE_EMBEDDING_DIMENSION,
+        )
+        return []
 
     with db.session_scope() as session:
         is_postgres = session.bind and session.bind.dialect.name == "postgresql"
@@ -180,12 +209,22 @@ def retrieve(query: str, top_k: Optional[int] = None) -> List[Dict[str, object]]
                 FROM embeddings e
                 JOIN document_chunks dc ON dc.id = e.document_chunk_id
                 WHERE e.embedding IS NOT NULL
+                  AND vector_dims(e.embedding) = :embedding_dim
                 ORDER BY e.embedding <=> CAST(:query_vec AS vector)
                 LIMIT :k
             """
-            rows = session.execute(
-                sql_text(sql), {"query_vec": vector_literal, "k": limit}
-            )
+            try:
+                rows = session.execute(
+                    sql_text(sql),
+                    {
+                        "query_vec": vector_literal,
+                        "k": limit,
+                        "embedding_dim": ACTIVE_EMBEDDING_DIMENSION,
+                    },
+                )
+            except Exception as exc:
+                logger.warning("RAG vector retrieval failed; continuing without context: %s", exc)
+                return []
             return [
                 {
                     "similarity": float(row.similarity),
@@ -202,6 +241,8 @@ def retrieve(query: str, top_k: Optional[int] = None) -> List[Dict[str, object]]
         for row in emb_rows:
             row_vec = row.get_embedding()
             if not row_vec:
+                continue
+            if len(row_vec) != query_dim:
                 continue
             sim = cosine_similarity(query_embed, row_vec)
             scored.append((sim, row.chunk_text, row.document_id))
