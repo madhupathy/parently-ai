@@ -57,8 +57,21 @@ def get_me(current_user: User = Depends(get_current_user)) -> Dict[str, Any]:
         entitlement = session.query(UserEntitlement).filter(
             UserEntitlement.user_id == current_user.id
         ).first()
+        entitlement_data = {
+            "plan": entitlement.plan,
+            "digests_remaining": entitlement.digests_remaining,
+            "premium_active": entitlement.premium_active,
+        } if entitlement else {
+            "plan": "FREE",
+            "digests_remaining": 30,
+            "premium_active": False,
+        }
 
         children = session.query(Child).filter(Child.user_id == current_user.id).all()
+        children_data = [
+            {"id": c.id, "name": c.name, "grade": c.grade, "school_name": c.school_name}
+            for c in children
+        ]
         user_obj = session.query(User).filter(User.id == current_user.id).first()
         onboarding_done = user_obj.onboarding_complete if user_obj else False
 
@@ -72,15 +85,8 @@ def get_me(current_user: User = Depends(get_current_user)) -> Dict[str, Any]:
             "provider": current_user.provider,
             "onboarding_complete": onboarding_done,
         },
-        "entitlement": {
-            "plan": entitlement.plan if entitlement else "FREE",
-            "digests_remaining": entitlement.digests_remaining if entitlement else 30,
-            "premium_active": entitlement.premium_active if entitlement else False,
-        } if entitlement else None,
-        "children": [
-            {"id": c.id, "name": c.name, "grade": c.grade, "school_name": c.school_name}
-            for c in children
-        ],
+        "entitlement": entitlement_data,
+        "children": children_data,
     }
 
 

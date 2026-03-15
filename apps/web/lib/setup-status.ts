@@ -56,7 +56,8 @@ export async function fetchSetupStatusModel(opts?: {
   const setupData = setupRes && setupRes.ok ? await setupRes.json() : null
   const childrenData = childrenRes.ok ? await childrenRes.json() : { children: [] }
   const children: ChildRow[] = childrenData?.children || []
-  const hasChildren = setupData?.setup_status?.has_children ?? children.length > 0
+  const hasChildren =
+    Boolean(setupData?.setup_status?.has_children) || children.length > 0
 
   const sourcePayloads = await Promise.all(
     children.map((child) =>
