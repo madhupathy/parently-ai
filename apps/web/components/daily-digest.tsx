@@ -121,6 +121,8 @@ export function DailyDigest() {
   const [initialLoad, setInitialLoad] = useState(true)
   const [setupStatus, setSetupStatus] = useState<SetupStatusModel | null>(null)
   const [setupLoading, setSetupLoading] = useState(true)
+  const [childrenCount, setChildrenCount] = useState(0)
+  const [childrenLoading, setChildrenLoading] = useState(true)
   const [setupModal, setSetupModal] = useState<SetupModalState>({
     open: false,
     title: "",
@@ -150,6 +152,23 @@ export function DailyDigest() {
     fetchDashboard()
   }, [fetchDashboard])
 
+  const fetchChildrenCount = useCallback(async () => {
+    setChildrenLoading(true)
+    try {
+      const res = await fetch("/api/children", { cache: "no-store" })
+      const data = res.ok ? await res.json().catch(() => ({ children: [] })) : { children: [] }
+      const children = Array.isArray(data?.children) ? data.children : []
+      setChildrenCount(children.length)
+      console.debug("[daily-digest] children response", data)
+      return children.length
+    } catch (err) {
+      console.error("[daily-digest] children fetch failed", err)
+      return 0
+    } finally {
+      setChildrenLoading(false)
+    }
+  }, [])
+
   const fetchSetupStatus = useCallback(async () => {
     setSetupLoading(true)
     try {
@@ -167,31 +186,40 @@ export function DailyDigest() {
 
   useEffect(() => {
     fetchSetupStatus()
-  }, [fetchSetupStatus])
+    fetchChildrenCount()
+  }, [fetchSetupStatus, fetchChildrenCount])
 
   useEffect(() => {
-    const onChildrenUpdated = () => fetchSetupStatus()
-    const onFocus = () => fetchSetupStatus()
+    const onChildrenUpdated = () => {
+      fetchSetupStatus()
+      fetchChildrenCount()
+    }
+    const onFocus = () => {
+      fetchSetupStatus()
+      fetchChildrenCount()
+    }
     window.addEventListener("parently:children-updated", onChildrenUpdated)
     window.addEventListener("focus", onFocus)
     return () => {
       window.removeEventListener("parently:children-updated", onChildrenUpdated)
       window.removeEventListener("focus", onFocus)
     }
-  }, [fetchSetupStatus])
+  }, [fetchSetupStatus, fetchChildrenCount])
 
-  const setupIncomplete = !setupStatus?.hasChildren
-  const showOnboardingEmptyState = !todayDigest && !setupLoading && setupIncomplete
+  const hasChildren = childrenCount > 0
+  const setupIncomplete = !hasChildren
+  const showOnboardingEmptyState = !todayDigest && !setupLoading && !childrenLoading && setupIncomplete
 
   useEffect(() => {
     if (!setupStatus) return
     console.debug("[daily-digest] setup status snapshot", {
-      hasChildren: setupStatus.hasChildren,
+      hasChildren,
+      childrenCount,
       hasSchoolText: setupStatus.hasSchoolText,
       hasLinkedSchoolSource: setupStatus.hasLinkedSchoolSource,
       digestReady: setupStatus.digestReady,
     })
-  }, [setupStatus])
+  }, [setupStatus, hasChildren, childrenCount])
 
   const openSetupPrompt = (kind: "child" | "integrations") => {
     if (kind === "child") {
@@ -225,7 +253,13 @@ export function DailyDigest() {
             : ""
     const normalized = message.toLowerCase()
 
-    if (normalized.includes("no children") || normalized.includes("child")) return "child"
+    if (
+      normalized.includes("no children") ||
+      normalized.includes("no child profile") ||
+      normalized.includes("at least one child")
+    ) {
+      return "child"
+    }
     if (normalized.includes("no integration") || normalized.includes("integration")) {
       return "integrations"
     }
@@ -238,6 +272,8 @@ export function DailyDigest() {
       if (!res.ok) return false
       const data = await res.json().catch(() => ({ children: [] }))
       const children = Array.isArray(data?.children) ? data.children : []
+      setChildrenCount(children.length)
+      console.debug("[daily-digest] realtime children check", { childrenCount: children.length })
       return children.length > 0
     } catch {
       return false
@@ -245,7 +281,7 @@ export function DailyDigest() {
   }
 
   const handleRunDigest = async () => {
-    if (!setupStatus?.hasChildren) {
+    if (!hasChildren) {
       const hasChildrenNow = await hasChildrenRealtime()
       if (!hasChildrenNow) {
         openSetupPrompt("child")
@@ -253,7 +289,7 @@ export function DailyDigest() {
       }
       setSetupStatus((prev) =>
         prev
-          ? { ...prev, hasChildren: true, digestReady: true }
+          ? { ...prev, hasChildren: true }
           : null
       )
     }
@@ -377,7 +413,7 @@ export function DailyDigest() {
                   <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
                   {loading
                     ? "Running..."
-                    : !setupLoading && !setupStatus?.hasChildren
+                    : !childrenLoading && !hasChildren
                       ? "Add Child"
                       : "Run Digest"}
                 </Button>

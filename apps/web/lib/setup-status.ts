@@ -56,8 +56,8 @@ export async function fetchSetupStatusModel(opts?: {
   const setupData = setupRes && setupRes.ok ? await setupRes.json() : null
   const childrenData = childrenRes && childrenRes.ok ? await childrenRes.json() : { children: [] }
   const children: ChildRow[] = childrenData?.children || []
-  const hasChildren =
-    Boolean(setupData?.setup_status?.has_children) || children.length > 0
+  // Source of truth for child readiness is persisted children rows.
+  const hasChildren = children.length > 0
 
   const sourcePayloads = await Promise.all(
     children.map((child) =>
