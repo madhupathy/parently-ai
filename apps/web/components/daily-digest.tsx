@@ -134,12 +134,13 @@ export function DailyDigest() {
       const res = await fetch("/api/digest/dashboard")
       if (!res.ok) return
       const data = await res.json()
+      console.debug("[daily-digest] dashboard response", data)
       if (data.ok) {
         setTodayDigest(data.today_digest || null)
         setPastDigests(data.past_digests || [])
       }
-    } catch {
-      // silent
+    } catch (err) {
+      console.error("[daily-digest] dashboard fetch failed", err)
     } finally {
       setInitialLoad(false)
     }
@@ -157,6 +158,8 @@ export function DailyDigest() {
         grantedScopes: (session as any)?.grantedScopes,
       })
       setSetupStatus(model)
+    } catch (err) {
+      console.error("[daily-digest] setup-status fetch failed", err)
     } finally {
       setSetupLoading(false)
     }

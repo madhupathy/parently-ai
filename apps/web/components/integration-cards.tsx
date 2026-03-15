@@ -40,6 +40,7 @@ export function IntegrationCards() {
       grantedScopes: (session as any)?.grantedScopes,
     })
       .then((model) => {
+        console.debug("[integration-cards] setup status model", model)
         setIntegrations((prev) =>
           prev.map((item) => {
             if (item.key === "gmail") {
@@ -74,7 +75,8 @@ export function IntegrationCards() {
           })
         )
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("[integration-cards] setup status fetch failed", err)
         // keep defaults
       })
   }, [session])

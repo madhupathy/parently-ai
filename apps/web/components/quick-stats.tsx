@@ -36,19 +36,25 @@ export function QuickStats() {
       fetch("/api/billing/status", { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
+        console.debug("[quick-stats] billing response", data)
         if (data.ok) {
           setDigestsRemaining(data.digests_remaining)
           setIsPremium(data.premium_active)
         }
       })
-      .catch(() => {})
+      .catch((err) => {
+        console.error("[quick-stats] billing fetch failed", err)
+      })
 
       fetch("/api/children", { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
+        console.debug("[quick-stats] children response", data)
         if (data.ok) setChildrenCount(data.children?.length || 0)
       })
-      .catch(() => {})
+      .catch((err) => {
+        console.error("[quick-stats] children fetch failed", err)
+      })
     }
 
     loadStats()

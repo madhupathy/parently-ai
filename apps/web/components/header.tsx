@@ -88,9 +88,12 @@ export function Header() {
     fetch("/api/billing/status")
       .then((r) => r.json())
       .then((data) => {
+        console.debug("[header] billing status response", data)
         if (data.ok) setPlan(data.premium_active ? "PREMIUM" : "FREE")
       })
-      .catch(() => {})
+      .catch((err) => {
+        console.error("[header] billing status fetch failed", err)
+      })
   }, [])
 
   // Poll unread count every 30s
@@ -98,8 +101,11 @@ export function Header() {
     try {
       const res = await fetch("/api/notifications/unread-count")
       const data = await res.json()
+      console.debug("[header] unread-count response", data)
       if (data.ok) setUnreadCount(data.unread_count)
-    } catch { /* silent */ }
+    } catch (err) {
+      console.error("[header] unread-count fetch failed", err)
+    }
   }, [])
 
   useEffect(() => {
@@ -113,11 +119,14 @@ export function Header() {
     try {
       const res = await fetch("/api/notifications?limit=20")
       const data = await res.json()
+      console.debug("[header] notifications response", data)
       if (data.ok) {
         setNotifications(data.notifications)
         setUnreadCount(data.unread_count)
       }
-    } catch { /* silent */ }
+    } catch (err) {
+      console.error("[header] notifications fetch failed", err)
+    }
   }, [])
 
   const handleBellOpen = (open: boolean) => {

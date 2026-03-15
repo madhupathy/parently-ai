@@ -49,12 +49,12 @@ export async function fetchSetupStatusModel(opts?: {
 }): Promise<SetupStatusModel> {
   const [setupRes, childrenRes, integrationsRes] = await Promise.all([
     fetch("/api/setup/status", { cache: "no-store" }).catch(() => null as any),
-    fetch("/api/children", { cache: "no-store" }),
+    fetch("/api/children", { cache: "no-store" }).catch(() => null as any),
     fetch("/api/integrations/status", { cache: "no-store" }).catch(() => null as any),
   ])
 
   const setupData = setupRes && setupRes.ok ? await setupRes.json() : null
-  const childrenData = childrenRes.ok ? await childrenRes.json() : { children: [] }
+  const childrenData = childrenRes && childrenRes.ok ? await childrenRes.json() : { children: [] }
   const children: ChildRow[] = childrenData?.children || []
   const hasChildren =
     Boolean(setupData?.setup_status?.has_children) || children.length > 0

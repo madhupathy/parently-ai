@@ -4,7 +4,9 @@ import { QuickStats } from "@/components/quick-stats"
 import { DailyDigest } from "@/components/daily-digest"
 import { IntegrationCards } from "@/components/integration-cards"
 import { PdfUpload } from "@/components/pdf-upload"
+import { RuntimeGuard } from "@/components/runtime-guard"
 import { useSession } from "next-auth/react"
+import { useEffect } from "react"
 
 function getGreeting() {
   const h = new Date().getHours()
@@ -15,8 +17,17 @@ function getGreeting() {
 
 export default function DashboardPage() {
   const { data: session } = useSession()
-  const firstName = session?.user?.name?.split(" ")[0] || "there"
+  const userName = typeof session?.user?.name === "string" ? session.user.name : ""
+  const firstName = userName.trim() ? userName.split(" ")[0] : "there"
   const greeting = getGreeting()
+
+  useEffect(() => {
+    console.debug("[dashboard] session snapshot", {
+      hasSession: Boolean(session),
+      email: session?.user?.email || null,
+      name: session?.user?.name || null,
+    })
+  }, [session])
 
   return (
     <div className="space-y-8">
@@ -33,17 +44,25 @@ export default function DashboardPage() {
       </section>
 
       {/* First: Today's Digest */}
-      <DailyDigest />
+      <RuntimeGuard name="daily-digest">
+        <DailyDigest />
+      </RuntimeGuard>
 
       {/* Then: Upcoming Events, Children, Digests Left */}
-      <QuickStats />
+      <RuntimeGuard name="quick-stats">
+        <QuickStats />
+      </RuntimeGuard>
 
       <div className="grid gap-8 lg:grid-cols-2">
         <div className="space-y-8">
-          <IntegrationCards />
+          <RuntimeGuard name="integration-cards">
+            <IntegrationCards />
+          </RuntimeGuard>
         </div>
         <div className="space-y-8">
-          <PdfUpload />
+          <RuntimeGuard name="pdf-upload">
+            <PdfUpload />
+          </RuntimeGuard>
         </div>
       </div>
     </div>
