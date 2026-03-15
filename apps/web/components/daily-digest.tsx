@@ -22,6 +22,15 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { UpgradeModal } from "@/components/upgrade-modal"
+import Link from "next/link"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 /* ── Types ────────────────────────────────────── */
 
@@ -50,6 +59,18 @@ interface DigestSummary {
   created_at: string
   item_count: number
   preview: string
+}
+
+interface ChildRow {
+  id: number
+}
+
+interface SetupModalState {
+  open: boolean
+  title: string
+  description: string
+  ctaLabel: string
+  ctaHref: string
 }
 
 /* ── Helpers ──────────────────────────────────── */
@@ -108,6 +129,16 @@ export function DailyDigest() {
   const [expandedPastDigest, setExpandedPastDigest] = useState<DigestFull | null>(null)
   const [loadingPast, setLoadingPast] = useState(false)
   const [initialLoad, setInitialLoad] = useState(true)
+  const [setupLoading, setSetupLoading] = useState(true)
+  const [childrenCount, setChildrenCount] = useState(0)
+  const [hasSchoolSource, setHasSchoolSource] = useState(false)
+  const [setupModal, setSetupModal] = useState<SetupModalState>({
+    open: false,
+    title: "",
+    description: "",
+    ctaLabel: "",
+    ctaHref: "/settings",
+  })
 
   const fetchDashboard = useCallback(async () => {
     try {
@@ -129,7 +160,107 @@ export function DailyDigest() {
     fetchDashboard()
   }, [fetchDashboard])
 
+  const fetchSetupStatus = useCallback(async () => {
+    setSetupLoading(true)
+    try {
+      const childRes = await fetch("/api/children")
+      if (!childRes.ok) return
+      const childData = await childRes.json()
+      const children: ChildRow[] = childData?.children || []
+      setChildrenCount(children.length)
+
+      if (children.length === 0) {
+        setHasSchoolSource(false)
+        return
+      }
+
+      const sourceResponses = await Promise.all(
+        children.map((child) =>
+          fetch(`/api/sources/${child.id}`)
+            .then((res) => (res.ok ? res.json() : { sources: [] }))
+            .catch(() => ({ sources: [] }))
+        )
+      )
+      const hasAnySource = sourceResponses.some(
+        (result) => Array.isArray(result?.sources) && result.sources.length > 0
+      )
+      setHasSchoolSource(hasAnySource)
+    } finally {
+      setSetupLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchSetupStatus()
+  }, [fetchSetupStatus])
+
+  const setupIncomplete = childrenCount === 0 || !hasSchoolSource
+  const showOnboardingEmptyState = !todayDigest && !setupLoading && setupIncomplete
+
+  const openSetupPrompt = (kind: "child" | "school" | "integrations") => {
+    if (kind === "child") {
+      setSetupModal({
+        open: true,
+        title: "Add your child first to generate a digest",
+        description: "Parently needs at least one child profile before creating your first digest.",
+        ctaLabel: "Add Child",
+        ctaHref: "/settings?tab=children",
+      })
+      return
+    }
+    if (kind === "school") {
+      setSetupModal({
+        open: true,
+        title: "Set up school details to generate your first digest",
+        description: "Connect at least one school source so Parently can gather updates.",
+        ctaLabel: "Set Up School",
+        ctaHref: "/settings?tab=children",
+      })
+      return
+    }
+    setSetupModal({
+      open: true,
+      title: "Connect an integration to generate richer digests",
+      description: "Connect Gmail, calendar, or another source to populate your digest.",
+      ctaLabel: "Set Up Integrations",
+      ctaHref: "/settings?tab=integrations",
+    })
+  }
+
+  const parseSetupErrorKind = (body: any): "child" | "school" | "integrations" | null => {
+    const detail = body?.detail
+    const message =
+      typeof detail === "string"
+        ? detail
+        : typeof detail?.message === "string"
+          ? detail.message
+          : typeof body?.error === "string"
+            ? body.error
+            : ""
+    const normalized = message.toLowerCase()
+
+    if (normalized.includes("no children") || normalized.includes("child")) return "child"
+    if (
+      normalized.includes("no school") ||
+      normalized.includes("school source") ||
+      normalized.includes("source")
+    ) return "school"
+    if (normalized.includes("no integration") || normalized.includes("integration")) {
+      return "integrations"
+    }
+    return null
+  }
+
   const handleRunDigest = async () => {
+    if (childrenCount === 0) {
+      openSetupPrompt("child")
+      return
+    }
+    if (!hasSchoolSource) {
+      openSetupPrompt("school")
+      return
+    }
+
     setLoading(true)
     try {
       const res = await fetch("/api/digest/run", { method: "POST" })
@@ -137,9 +268,16 @@ export function DailyDigest() {
         const data = await res.json()
         toast.success(data.cached ? "Digest already up to date" : "Digest generated!")
         fetchDashboard()
+        fetchSetupStatus()
       } else if (res.status === 402) {
         setShowUpgrade(true)
       } else {
+        const data = await res.json().catch(() => ({}))
+        const setupKind = parseSetupErrorKind(data)
+        if (setupKind) {
+          openSetupPrompt(setupKind)
+          return
+        }
         toast.error("Failed to generate digest")
       }
     } catch {
@@ -156,9 +294,16 @@ export function DailyDigest() {
       if (res.ok) {
         toast.success("Digest regenerated!")
         fetchDashboard()
+        fetchSetupStatus()
       } else if (res.status === 402) {
         setShowUpgrade(true)
       } else {
+        const data = await res.json().catch(() => ({}))
+        const setupKind = parseSetupErrorKind(data)
+        if (setupKind) {
+          openSetupPrompt(setupKind)
+          return
+        }
         toast.error("Failed to regenerate digest")
       }
     } catch {
@@ -233,7 +378,13 @@ export function DailyDigest() {
                   disabled={loading}
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-                  {loading ? "Running..." : "Run Digest"}
+                  {loading
+                    ? "Running..."
+                    : childrenCount === 0
+                      ? "Add Child"
+                      : !hasSchoolSource
+                        ? "Set Up School"
+                        : "Run Digest"}
                 </Button>
               )}
             </div>
@@ -243,6 +394,24 @@ export function DailyDigest() {
           {initialLoad ? (
             <div className="flex items-center justify-center py-12 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading...
+            </div>
+          ) : showOnboardingEmptyState ? (
+            <div className="py-12 text-center space-y-3 px-4">
+              <span className="text-4xl block">🌱</span>
+              <p className="text-base font-semibold">
+                You&apos;re one step away from your first digest
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Add your child and school details so Parently can build your daily digest.
+              </p>
+              <div className="flex flex-wrap justify-center gap-2 pt-1">
+                <Button asChild size="sm">
+                  <Link href="/settings?tab=children">Add Child</Link>
+                </Button>
+                <Button asChild size="sm" variant="outline">
+                  <Link href="/settings?tab=children">Set Up School</Link>
+                </Button>
+              </div>
             </div>
           ) : !todayDigest ? (
             <div className="py-12 text-center space-y-3">
@@ -395,6 +564,22 @@ export function DailyDigest() {
       </Card>
 
       <UpgradeModal open={showUpgrade} onOpenChange={setShowUpgrade} />
+      <Dialog
+        open={setupModal.open}
+        onOpenChange={(open) => setSetupModal((prev) => ({ ...prev, open }))}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{setupModal.title}</DialogTitle>
+            <DialogDescription>{setupModal.description}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button asChild>
+              <Link href={setupModal.ctaHref}>{setupModal.ctaLabel}</Link>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

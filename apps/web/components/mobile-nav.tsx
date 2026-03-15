@@ -7,8 +7,8 @@ import { cn } from "@/lib/utils"
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Home", icon: Home },
-  { href: "/dashboard#digest", label: "Digest", icon: FileText },
-  { href: "/dashboard#alerts", label: "Alerts", icon: Bell },
+  { href: "/digest", label: "Digest", icon: FileText },
+  { href: "/alerts", label: "Alerts", icon: Bell },
   { href: "/settings", label: "Settings", icon: Settings },
 ]
 
@@ -22,8 +22,9 @@ export function MobileNav() {
           const isActive =
             item.href === "/dashboard"
               ? pathname === "/dashboard"
-              : pathname.startsWith(item.href.split("#")[0]) &&
-                item.href !== "/dashboard"
+              : item.href === "/alerts"
+                ? pathname === "/alerts" || pathname === "/notifications"
+                : pathname === item.href || pathname.startsWith(`${item.href}/`)
 
           return (
             <Link

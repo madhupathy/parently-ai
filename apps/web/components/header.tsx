@@ -1,7 +1,20 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Bell, Settings, Menu, Moon, Sun, LogOut, Zap, CreditCard, CheckCheck } from "lucide-react"
+import {
+  Bell,
+  Settings,
+  Menu,
+  Moon,
+  Sun,
+  LogOut,
+  Zap,
+  CreditCard,
+  CheckCheck,
+  User,
+  Home,
+  FileText,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -16,6 +29,12 @@ import {
 import { useTheme } from "next-themes"
 import { useSession, signOut } from "next-auth/react"
 import Link from "next/link"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 /* ── Types ──────────────────────────────────── */
 
@@ -62,6 +81,7 @@ export function Header() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [notifications, setNotifications] = useState<NotificationItem[]>([])
   const [notifOpen, setNotifOpen] = useState(false)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   // Load plan
   useEffect(() => {
@@ -128,7 +148,12 @@ export function Header() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" className="md:hidden">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden"
+              onClick={() => setMobileNavOpen(true)}
+            >
               <Menu className="h-5 w-5" />
             </Button>
             <Link href="/" className="flex items-center gap-2">
@@ -267,6 +292,12 @@ export function Header() {
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
+                  <Link href="/settings?tab=profile">
+                    <User className="mr-2 h-4 w-4" />
+                    Profile
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
                   <Link href="/settings">
                     <Settings className="mr-2 h-4 w-4" />
                     Settings
@@ -288,6 +319,57 @@ export function Header() {
           </div>
         </div>
       </div>
+      <Dialog open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <DialogContent className="left-0 top-0 h-dvh w-[82vw] max-w-[22rem] translate-x-0 translate-y-0 rounded-none border-r border-l-0 border-y-0 p-0 sm:max-w-[22rem]">
+          <DialogHeader className="border-b border-border/60 px-5 py-4">
+            <DialogTitle className="text-base">Menu</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col p-3">
+            <Button variant="ghost" className="justify-start gap-2" asChild>
+              <Link href="/dashboard" onClick={() => setMobileNavOpen(false)}>
+                <Home className="h-4 w-4" />
+                Home
+              </Link>
+            </Button>
+            <Button variant="ghost" className="justify-start gap-2" asChild>
+              <Link href="/digest" onClick={() => setMobileNavOpen(false)}>
+                <FileText className="h-4 w-4" />
+                Digest
+              </Link>
+            </Button>
+            <Button variant="ghost" className="justify-start gap-2" asChild>
+              <Link href="/alerts" onClick={() => setMobileNavOpen(false)}>
+                <Bell className="h-4 w-4" />
+                Alerts
+              </Link>
+            </Button>
+            <Button variant="ghost" className="justify-start gap-2" asChild>
+              <Link href="/settings" onClick={() => setMobileNavOpen(false)}>
+                <Settings className="h-4 w-4" />
+                Settings
+              </Link>
+            </Button>
+            <Button variant="ghost" className="justify-start gap-2" asChild>
+              <Link href="/settings?tab=billing" onClick={() => setMobileNavOpen(false)}>
+                <CreditCard className="h-4 w-4" />
+                Billing
+              </Link>
+            </Button>
+            <div className="my-2 border-t border-border/60" />
+            <Button
+              variant="ghost"
+              className="justify-start gap-2 text-destructive hover:text-destructive"
+              onClick={() => {
+                setMobileNavOpen(false)
+                signOut({ callbackUrl: "/" })
+              }}
+            >
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </header>
   )
 }

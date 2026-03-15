@@ -1,7 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { useSession } from "next-auth/react"
+import { useSession, signOut } from "next-auth/react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -89,6 +90,9 @@ const TIMEZONES = [
 
 export default function SettingsPage() {
   const { data: session } = useSession()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const [activeTab, setActiveTab] = useState("profile")
 
   /* ─── Children state ───────────────────────────────── */
   const [children, setChildren] = useState<ChildData[]>([])
@@ -261,6 +265,23 @@ export default function SettingsPage() {
       .catch(() => {})
   }, [])
 
+  useEffect(() => {
+    const tab = searchParams.get("tab")
+    const allowedTabs = new Set([
+      "profile",
+      "children",
+      "integrations",
+      "digest",
+      "notifications",
+      "billing",
+    ])
+    if (tab && allowedTabs.has(tab)) {
+      setActiveTab(tab)
+      return
+    }
+    setActiveTab("profile")
+  }, [searchParams])
+
   const handleUpgrade = async () => {
     setBillingError(null)
     const res = await fetch("/api/billing/create-checkout-session", {
@@ -298,7 +319,13 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="profile">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          setActiveTab(value)
+          router.replace(`/settings?tab=${value}`)
+        }}
+      >
         <TabsList className="flex-wrap">
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="children">Children</TabsTrigger>
@@ -338,6 +365,14 @@ export default function SettingsPage() {
                   Contact support
                 </a>
               </div>
+              <Separator />
+              <Button
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => signOut({ callbackUrl: "/" })}
+              >
+                Sign out
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
