@@ -16,10 +16,12 @@ Parents receive fragmented messages across email, school apps, calendars, and we
 > Add screenshots to `docs/screenshots/` and update the paths below.
 >
 > **Dashboard** — daily digest with grouped events and action items  
-> ![Parently AI Dashboard](docs/screenshots/dashboard.png)
+> <img width="1838" height="1891" alt="image" src="https://github.com/user-attachments/assets/6d300388-3d98-4922-be73-ab1d838fcbd4" />
+
 >
 > **Onboarding** — school discovery and source setup  
-> ![Parently AI Onboarding](docs/screenshots/onboarding.png)
+> <img width="1916" height="1904" alt="image" src="https://github.com/user-attachments/assets/03b19159-bf34-463c-b22a-dded31dde88c" />
+
 
 ---
 
