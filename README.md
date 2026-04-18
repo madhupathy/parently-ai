@@ -1,74 +1,81 @@
+<div align="center">
+
 # Parently AI
 
-> **Calm, actionable daily school digests** — consolidating school communications from Gmail, Google Drive, school websites, and calendars into a single per-child summary.
+**One calm summary. Everything your child's school sent this week.**
+
+Parently AI connects to your Gmail, Google Drive, school websites, and class apps (ClassDojo, Brightwheel, Skyward), and delivers a single clear daily digest — grouped per child, with events, deadlines, and action items extracted so you don't have to.
 
 [![Migrations](https://github.com/madhupathy/parently-ai/actions/workflows/migrations.yml/badge.svg)](https://github.com/madhupathy/parently-ai/actions/workflows/migrations.yml)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue)](https://python.org)
-[![Next.js 14](https://img.shields.io/badge/Next.js-14-black)](https://nextjs.org)
-[![License](https://img.shields.io/badge/License-Proprietary-lightgrey)](#license)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
+[![Next.js 14](https://img.shields.io/badge/Next.js-14-black?logo=next.js)](https://nextjs.org)
 
-Parents receive fragmented messages across email, school apps, calendars, and websites. Parently AI ingests all of it and delivers one clear, context-specific digest per child — with events, deadlines, and action items extracted automatically.
-
----
-
-## Screenshots
-
-> Add screenshots to `docs/screenshots/` and update the paths below.
->
-> **Dashboard** — daily digest with grouped events and action items  
-> <img width="1838" height="1891" alt="image" src="https://github.com/user-attachments/assets/6d300388-3d98-4922-be73-ab1d838fcbd4" />
-
->
-> **Onboarding** — school discovery and source setup  
-> <img width="1916" height="1904" alt="image" src="https://github.com/user-attachments/assets/03b19159-bf34-463c-b22a-dded31dde88c" />
-
+</div>
 
 ---
 
-## Features
+## The Problem
 
-- Smart school source discovery from name + location
-- Gmail and Google Drive OAuth connectors
-- Automatic platform detection (ClassDojo, Brightwheel, Kumon, Skyward)
-- Calendar ingestion: ICS, RSS/Atom, HTML, and PDF sources
-- Per-child grouped daily digest via LangGraph workflow
-- Notification center with unread counts
-- Subscription billing via Stripe (Free / Premium $3/month)
-- Mobile-friendly PWA
+School communication is fragmented across too many channels:
+- An **email** from the teacher about Thursday's field trip
+- A **ClassDojo message** about a permission slip due Friday
+- A **school website update** listing the spring calendar
+- A **Google Drive PDF** with the updated lunch menu
+- A **Brightwheel notification** about the fundraiser deadline
+
+Parents miss things. Kids show up without the right supplies. Permission slips come home unsigned. The information was sent — it just got buried in four different apps.
+
+Parently AI reads all of it and tells you what matters, in plain language, every morning.
 
 ---
 
-## Architecture
+## How It Works
 
 ```
-Next.js frontend (apps/web)
-  → NextAuth (Google + optional Apple)
-  → internal API proxy routes (/api/*)
-  → FastAPI backend (apps/backend)
-       → LangGraph digest workflow
-       → discovery + ingestion services
-       → Postgres + pgvector (Neon)
-       → Stripe billing + webhooks
+Your Gmail        ClassDojo / Brightwheel    School website    Google Drive
+     │                    │                        │                │
+     └────────────────────┴────────────────────────┴────────────────┘
+                                    │
+                          Smart school discovery
+                          (auto-finds calendars,
+                           feeds, and doc pages)
+                                    │
+                          LangGraph digest pipeline
+                          ┌─────────────────────────┐
+                          │ fetch → classify         │
+                          │ → extract actions/dates  │
+                          │ → group per child        │
+                          │ → compose digest         │
+                          └─────────────────────────┘
+                                    │
+                    ┌───────────────┴───────────────┐
+                    │                               │
+              Daily email                    In-app dashboard
+                                          (PWA — works on mobile)
 ```
+
+**For each child**, the digest shows:
+- **Today** — anything happening today or requiring immediate attention
+- **Upcoming** — events in the next 7 days
+- **Actions** — things you need to do (sign forms, pay fees, bring items)
+- **FYI** — announcements, policy updates, newsletter highlights
 
 ---
 
-## Local Development
+## Quick Start
 
 ### Prerequisites
-
-- Python 3.11+
-- Node.js 18+
-- SQLite (default for local) or Postgres + pgvector (production)
+- Python 3.11+, Node.js 18+
+- A Google account with Gmail access
+- SQLite (local dev) or Neon Postgres + pgvector (production)
 
 ### Backend
 
 ```bash
 cd apps/backend
-python -m venv .venv
-source .venv/bin/activate         # Windows: .venv\Scripts\Activate.ps1
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp env.example .env               # fill in your values
+cp env.example .env          # fill in NEXTAUTH_SECRET, GEMINI_API_KEY
 alembic upgrade head
 uvicorn app:app --reload --port 8000
 ```
@@ -78,124 +85,136 @@ uvicorn app:app --reload --port 8000
 ```bash
 cd apps/web
 npm install
-cp env.example .env.local         # fill in your values
+cp env.example .env.local    # fill in NEXTAUTH_SECRET, GOOGLE_CLIENT_ID/SECRET
 npm run dev
 # → http://localhost:3000
 ```
 
-### Tests
+### Run the test suite
 
 ```bash
-cd apps/backend
-python -m pytest tests/ -v
+cd apps/backend && python -m pytest tests/ -v
 ```
+
+---
+
+## Key Features
+
+### Smart School Discovery
+Type your child's school name. Parently finds the official website, calendar feeds (ICS, RSS, HTML), and downloadable PDFs automatically — no manual URL entry.
+
+```
+"Harmony Science Academy Georgetown TX"
+    → Found: school website, academic calendar ICS, parent newsletter feed
+    → Discovered 3 sources — confirm to start ingesting
+```
+
+### Platform Detection
+Parently recognizes email patterns from ClassDojo, Brightwheel, Kumon, and Skyward — and extracts structured data without needing direct API access to those platforms.
+
+### Per-Child Digest
+Every piece of content is mapped to the right child. If you have two kids at different schools, their digests are completely separate. No cross-contamination.
+
+### Gmail OAuth — No Password Required
+Connect Gmail with a standard Google OAuth flow. Parently requests `gmail.readonly` scope only. Your credentials are never stored in plain text.
 
 ---
 
 ## Environment Variables
 
-> ⚠️ **Never commit `.env` or `env.local` files.** They are gitignored. Use the `env.example` files as templates.
+> **Never commit `.env` or `.env.local`** — they are gitignored. Use `env.example` as a template only.
 
 ### Backend (`apps/backend/env.example`)
 
 | Variable | Required | Description |
-|---|---|---|
-| `BACKEND_DATABASE_URL` | Yes | SQLite URI for local; Neon Postgres URI for production |
-| `NEXTAUTH_SECRET` | Yes | Must match frontend `NEXTAUTH_SECRET` |
-| `FRONTEND_APP_URL` | Yes | `https://parently-ai.com` in production |
-| `ALLOWED_ORIGINS` | Yes | Comma-separated allowed frontend origins |
-| `CRON_SECRET` | Yes | Secret header for internal cron endpoints |
-| `GEMINI_API_KEY` | Yes | Primary LLM provider key |
-| `GEMINI_MODEL` | Yes | e.g. `gemini-flash-latest` |
-| `GOOGLE_CLIENT_ID` | Yes | Google OAuth client ID |
-| `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth client secret |
-| `STRIPE_SECRET_KEY` | Yes | Stripe secret key (test or live) |
-| `STRIPE_PRICE_ID` | Yes | Stripe recurring price ID |
-| `STRIPE_WEBHOOK_SECRET` | Yes | Stripe webhook signing secret |
-| `SMTP_HOST` | Yes | Outbound mail server |
-| `SMTP_USER` | Yes | SMTP username |
-| `SMTP_PASSWORD` | Yes | SMTP password |
-| `OPENAI_API_KEY` | Optional | Fallback LLM key |
+|----------|----------|-------------|
+| `BACKEND_DATABASE_URL` | Yes | `sqlite:///./parently.db` (dev) or Neon Postgres URI (prod) |
+| `NEXTAUTH_SECRET` | Yes | Must exactly match the frontend value — generate with `openssl rand -hex 32` |
+| `GEMINI_API_KEY` | Yes | Primary LLM — [aistudio.google.com](https://aistudio.google.com/app/apikey) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth for Gmail token refresh |
+| `STRIPE_SECRET_KEY` | Yes | Stripe billing |
+| `STRIPE_WEBHOOK_SECRET` | Yes | Stripe webhook signing |
+| `STRIPE_PRICE_ID` | Yes | $3/month recurring price ID |
+| `SMTP_HOST` / `SMTP_USER` / `SMTP_PASSWORD` | Yes | Outbound email for digest delivery |
+| `CRON_SECRET` | Yes | Header secret for internal cron endpoints |
+| `OPENAI_API_KEY` | Optional | Fallback LLM |
 
 ### Frontend (`apps/web/env.example`)
 
 | Variable | Required | Description |
-|---|---|---|
-| `BACKEND_URL` | Yes | Backend base URL (server-side only) |
+|----------|----------|-------------|
+| `BACKEND_URL` | Yes | Backend base URL — server-side only |
+| `NEXTAUTH_SECRET` | Yes | Must match backend exactly |
 | `NEXTAUTH_URL` | Yes | Public frontend URL |
-| `NEXTAUTH_SECRET` | Yes | Must match backend `NEXTAUTH_SECRET` |
-| `GOOGLE_CLIENT_ID` | Yes | Google OAuth client ID |
-| `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth client secret |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth |
 | `AUTH_TRUST_HOST` | Yes | Set `true` on Railway |
-
----
-
-## Database Migrations
-
-Schema changes must ship as Alembic migrations:
-
-```bash
-alembic revision --autogenerate -m "describe your change"
-alembic upgrade head
-```
-
-Verify the chain runs from scratch before deploying:
-
-```bash
-alembic downgrade base
-alembic upgrade head
-```
-
----
-
-## Key API Endpoints
-
-| Area | Method | Path |
-|---|---|---|
-| Health | `GET` | `/healthz` |
-| Auth sync | `POST` | `/api/auth/sync` |
-| School discovery | `POST` | `/api/sources/discover` |
-| Setup status | `GET` | `/api/setup/status` |
-| Daily digest | `POST` | `/api/internal/run-daily-digests` |
-| Billing checkout | `POST` | `/api/billing/create-checkout-session` |
-| Notifications | `GET` | `/api/notifications` |
 
 ---
 
 ## Plans
 
-| Plan | Price | Digest Limit | History |
-|---|---|---|---|
-| Free | $0 | 30 lifetime | 7 days |
-| Premium | $3/month | Unlimited | 365 days |
+| Plan | Price | Digests | History | Features |
+|------|-------|---------|---------|---------|
+| Free | $0 | 30 lifetime | 7 days | Gmail + school discovery |
+| Premium | $3/month | Unlimited | 365 days | + Drive, priority processing |
 
-Free-plan limits are enforced server-side; the backend returns HTTP `402` when limits are reached.
+When free limits are exhausted, the backend returns HTTP `402` and the frontend shows the upgrade modal.
 
 ---
 
-## Deployment
+## Database Migrations
 
-See [deployment.md](deployment.md) for the full production checklist covering Railway, Neon Postgres, Stripe, Google OAuth, cron jobs, and DNS/SSL setup.
+Every schema change ships as an Alembic migration:
 
-**Common pitfalls:**
-- `NEXTAUTH_SECRET` must be identical in frontend and backend
-- `AUTH_TRUST_HOST=true` is required on Railway
+```bash
+alembic revision --autogenerate -m "describe change"
+alembic upgrade head
+
+# Before any deployment — verify the chain from scratch
+alembic downgrade base && alembic upgrade head
+```
+
+---
+
+## Architecture
+
+```
+apps/web/                         Next.js 14 + NextAuth + Tailwind
+  app/api/*/                      API proxy routes → FastAPI backend
+  components/                     Dashboard, digest, onboarding UI
+
+apps/backend/
+  app.py                          FastAPI entrypoint
+  agents/graph.py                 LangGraph digest pipeline
+  services/
+    connectors/                   Gmail, Drive, ClassDojo, Brightwheel connectors
+    school_discovery.py           LLM-powered source discovery
+    email_classifier.py           Email → school/child/category mapping
+    llm.py                        Gemini + OpenAI service layer
+  routers/                        Auth, digest, sources, billing, notifications
+  storage/models.py               SQLAlchemy models (users, children, sources, digests)
+  alembic/versions/               Migration chain
+```
+
+---
+
+## Production Notes
+
+- **Domain**: `https://parently-ai.com`
+- **Hosting**: Railway (frontend + backend), Neon Postgres
+- `NEXTAUTH_SECRET` must be **identical** in frontend and backend — a mismatch causes silent auth failures
+- `AUTH_TRUST_HOST=true` is **required** on Railway's frontend service
+- All Stripe variables must come from the **same mode** (test or live)
 - `ALLOWED_ORIGINS` must include the exact production frontend domain
-- Stripe key, price ID, and webhook secret must all come from the same mode (test or live)
+
+Full production checklist in [deployment.md](deployment.md).
 
 ---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). In short:
-
-1. Fork → branch → commit → PR
-2. Run `pytest tests/ -v` before pushing
-3. Include an Alembic migration for any schema change
-4. Never commit `.env` files or credentials
-
----
+See [CONTRIBUTING.md](CONTRIBUTING.md). Run `pytest tests/ -v` before submitting. Include an Alembic migration for any schema change. Never commit credentials.
 
 ## License
 
-All rights reserved. Contact the maintainers for licensing inquiries.
+All rights reserved.
