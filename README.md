@@ -1,49 +1,110 @@
-# Parently AI
+# Parently: Never miss important school news again
 
-Parently AI gives parents a calm, actionable daily school digest instead of fragmented messages across email, school websites, and calendars. The platform combines smart source discovery, targeted ingestion, and AI summarization in a production SaaS architecture.
+![Python](https://img.shields.io/badge/python-3.11%2B-blue?logo=python&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template)
+
+---
+
+## The Problem
+
+Your child's school sends emails to five different addresses, posts events on an unmaintained website, shares PDFs through a class app, and texts last-minute reminders at 7 AM. You miss the field-trip permission deadline. Again.
+
+## The Solution
+
+**Parently** pulls every channel together — Gmail, Google Drive, school websites, and public calendars — and turns the noise into a single calm daily digest, grouped by child, delivered at the time you choose.
+
+---
+
+## Features
+
+- ✅ **Gmail integration** — OAuth-powered scan of school-related emails
+- ✅ **AI-powered digest generation** — LangGraph + Gemini extracts events, deadlines, and action items
+- ✅ **Per-child grouping** — each digest section is scoped to one child
+- ✅ **Daily email delivery** — sent to your inbox at your preferred time
+- ✅ **Timezone-aware scheduling** — works correctly wherever you are
+- ✅ **Priority rules** — mark senders as "always important" or "never notify"
+- ✅ **Full-text search in digest history** — find any past announcement instantly
+- ✅ **PWA — works offline on mobile** — install to home screen, read cached digests without signal
+- ✅ **Free tier available** — 30 lifetime digests, no credit card required
+
+---
 
 ## Quick Start
 
-Five commands to run the full stack locally:
-
 ```bash
-# 1. Clone and enter the repo
-git clone https://github.com/your-org/parently.git && cd parently/parently
+# 1. Clone the repo
+git clone https://github.com/your-org/parently.git
+cd parently/parently
 
-# 2. Start the backend (Python 3.11+)
-cd apps/backend && python -m venv .venv && .venv/Scripts/Activate.ps1  # Windows
-# source .venv/bin/activate                                              # macOS/Linux
-pip install -r requirements.txt && cp env.example .env
-alembic upgrade head && uvicorn app:app --reload --port 8000
+# 2. Set up the backend (Python 3.11+)
+cd apps/backend
+python -m venv .venv
 
-# 3. Start the frontend (Node 18+) — open a new terminal
-cd apps/web && npm install && cp env.example .env.local && npm run dev
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+# macOS / Linux
+# source .venv/bin/activate
+
+pip install -r requirements.txt
+cp env.example .env          # fill in required keys (see Environment Variables below)
+alembic upgrade head
+uvicorn app:app --reload --port 8000
+
+# 3. Set up the frontend (Node 18+) — open a new terminal
+cd apps/web
+npm install
+cp env.example .env.local    # fill in required keys
+npm run dev
 
 # 4. Open the app
-# Frontend: http://localhost:3000
-# Backend API docs: http://localhost:8000/docs
+#   Frontend:        http://localhost:3000
+#   Backend API docs: http://localhost:8000/docs
+
+# 5. Run the test suite (optional)
+cd apps/backend
+python -m pytest tests/ -v
 ```
 
-Minimum required `.env` keys for local development: `NEXTAUTH_SECRET`, `GEMINI_API_KEY`, and `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`.
+Minimum required `.env` keys for local development:
 
-## Product Overview
+| Key | Where |
+|---|---|
+| `NEXTAUTH_SECRET` | frontend + backend (must match) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | frontend + backend |
+| `GEMINI_API_KEY` | backend |
+| `NEXTAUTH_URL` | frontend (`http://localhost:3000` locally) |
+| `BACKEND_URL` | frontend (`http://localhost:8000` locally) |
 
-Parently AI:
-- consolidates school communication from Gmail, Google Drive, school websites, and public calendars;
-- groups outputs per child, so each digest is context-specific;
-- extracts events, deadlines, announcements, and action items;
-- provides a mobile-friendly PWA experience with subscription billing.
-
-## Current Deployment Status
-
-- Production frontend domain: `https://parently-ai.com`
-- Backend public URL: `https://<backend>.up.railway.app` (placeholder until finalized)
-- Frontend Railway URL: `https://<frontend>.up.railway.app` (placeholder until finalized)
-- Hosting: Railway (frontend + backend), Neon Postgres (`pgvector`)
-- Billing mode: set in Stripe (`test` or `live`)
-- Support email: `support@parently-ai.com`
+---
 
 ## Architecture
+
+```
+Browser / PWA (Next.js 14, App Router)
+  ├─ NextAuth  →  Google OAuth (+ optional Apple)
+  ├─ JWT bearer tokens  →  FastAPI backend
+  ├─ Service worker  →  offline app shell cache
+  └─ /api/* proxy routes
+
+FastAPI backend (Python 3.11)
+  ├─ Auth sync + entitlement enforcement
+  ├─ Smart school discovery + source verification
+  ├─ Connector ingestion (Gmail, Drive, ICS, RSS, PDF)
+  ├─ LangGraph digest pipeline
+  │    ├─ Collect + classify content per child
+  │    ├─ RAG retrieval over pgvector
+  │    ├─ Action / date extraction (Gemini)
+  │    └─ Compose per-child digest sections
+  ├─ Digest persistence + email delivery (aiosmtplib)
+  ├─ Notification fan-out
+  └─ Stripe billing + webhooks
+
+Neon Postgres (pgvector)
+  ├─ Core entities: users, children, sources, digests
+  ├─ Entitlements + billing state
+  └─ Vector embeddings (document_chunks + embeddings)
+```
 
 ### Stack
 
@@ -58,124 +119,9 @@ Parently AI:
 | Email | aiosmtplib + Jinja2 | Digest delivery |
 | Hosting | Railway | Frontend + backend |
 
-### High-level system
-
-```
-Browser / PWA
-  └─ Next.js frontend (apps/web)
-       ├─ NextAuth  →  Google / Apple OAuth
-       ├─ JWT bearer tokens  →  FastAPI backend
-       └─ /api/* proxy routes
-
-FastAPI backend (apps/backend)
-  ├─ Auth sync + entitlement enforcement
-  ├─ School discovery + source verification
-  ├─ Connector ingestion (Gmail, Drive, ICS, RSS, PDF)
-  ├─ LangGraph digest pipeline
-  │    ├─ Collect + classify content per child
-  │    ├─ RAG retrieval over pgvector
-  │    ├─ Action / date extraction (Gemini)
-  │    └─ Compose per-child sections
-  ├─ Digest persistence + email delivery (aiosmtplib)
-  ├─ Notification fan-out
-  └─ Stripe billing + webhooks
-
-Neon Postgres (pgvector)
-  ├─ Core entities: users, children, sources, digests
-  ├─ Entitlements + billing state
-  └─ Vector embeddings (document_chunks + embeddings)
-```
-
-### Daily digest cron flow
-
-1. Railway triggers `POST /api/internal/run-daily-digests` every hour.
-2. For each user the handler checks whether `now_utc` matches their preferred `digest_time` in their local `timezone` (stored in `user_preferences`).
-3. Entitlement check-and-decrement runs inside a single `SELECT FOR UPDATE` transaction to prevent race conditions.
-4. The LangGraph pipeline generates the digest; the result is persisted and a notification is created.
-5. If the user has `email_notifications` enabled, an HTML email is sent via `send_digest_email`.
-
-### Core backend domains
-- Auth/session sync and entitlement checks
-- Smart school discovery and source verification
-- Connector ingestion (Gmail, Drive, public sources)
-- Digest composition and notification fan-out
-- Billing and subscription state transitions
-
-## Key Features
-
-- Smart school discovery from name + location (website/calendar auto-discovery)
-- Per-child grouped daily digest output
-- Automatic email-platform detection (ClassDojo, Brightwheel, Kumon, Skyward)
-- Calendar ingestion across ICS, RSS/Atom, HTML, and PDF sources
-- Notification center with unread counts and digest-linked updates
-- Usage and entitlement enforcement with premium upgrade flow
-
-## Plans and Pricing
-
-| Plan | Price | Digest limits | History | Access |
-|---|---|---|---|---|
-| Free | $0 | 30 lifetime digests | 7 days | Core ingestion + discovery |
-| Premium | $3/month | Unlimited | 365 days | Priority usage + full history |
-
-When free limits are exhausted, backend entitlement checks return HTTP `402` and frontend prompts upgrade.
-
-## Repository Layout
-
-```
-apps/
-  backend/
-    app.py
-    config.py
-    dependencies.py
-    routers/
-    services/
-    storage/
-    agents/
-    tests/
-    prompts/
-    alembic/
-  web/
-    app/
-    components/
-    lib/
-    auth.ts
-    middleware.ts
-```
-
-## Local Development
-
-### Backend
-
-```bash
-cd apps/backend
-python -m venv .venv
-# Windows PowerShell
-.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-copy env.example .env
-alembic upgrade head
-uvicorn app:app --reload --port 8000
-```
-
-### Frontend
-
-```bash
-cd apps/web
-npm install
-copy env.example .env.local
-npm run dev
-```
-
-### Test suite
-
-```bash
-cd apps/backend
-python -m pytest tests/ -v
-```
+---
 
 ## Environment Variables
-
-Use exactly these variables in production.
 
 ### Frontend (`apps/web`)
 
@@ -207,11 +153,11 @@ Use exactly these variables in production.
 | `RAG_EMBEDDING_DIMENSION` | Yes | Must match stored/query vectors, default `1536` |
 | `OPENAI_API_KEY` | Optional | Fallback model provider key |
 | `OPENAI_MODEL` | Optional | Example: `gpt-4o-mini` |
-| `GOOGLE_CLIENT_ID` | Yes | Required for Gmail token refresh when using DB-persisted OAuth tokens |
-| `GOOGLE_CLIENT_SECRET` | Yes | Required for Gmail token refresh when using DB-persisted OAuth tokens |
+| `GOOGLE_CLIENT_ID` | Yes | Required for Gmail token refresh |
+| `GOOGLE_CLIENT_SECRET` | Yes | Required for Gmail token refresh |
 | `STRIPE_SECRET_KEY` | Yes | Stripe secret key, mode-specific |
 | `STRIPE_PRICE_ID` | Yes | Stripe recurring price ID, same mode as key/secret |
-| `STRIPE_WEBHOOK_SECRET` | Yes | Stripe webhook signing secret, same mode as key/price |
+| `STRIPE_WEBHOOK_SECRET` | Yes | Stripe webhook signing secret |
 | `SMTP_HOST` | Yes | Outbound mail server host |
 | `SMTP_PORT` | Yes | Outbound mail server port |
 | `SMTP_USER` | Yes | SMTP username |
@@ -220,114 +166,77 @@ Use exactly these variables in production.
 | `SMTP_FROM_NAME` | Yes | Sender display name |
 | `SMTP_SECURE` | Yes | `true` or `false` depending on provider settings |
 
-## Authentication
+---
 
-- Frontend uses NextAuth (Google + optional Apple providers).
-- Backend verifies JWT bearer tokens using the shared `NEXTAUTH_SECRET`.
-- Frontend proxy routes call backend APIs with `Authorization: Bearer <token>`.
-- New users are synced to backend and routed to onboarding before dashboard access.
-- Google OAuth access/refresh tokens are persisted in backend integration storage (DB), so production digest runs do not rely on local `token.json` files.
+## Deployment (Railway)
 
-## Smart School Discovery
+1. Create two Railway services: one for the frontend (`apps/web`), one for the backend (`apps/backend`).
+2. Set root directory to `parently/apps/web` and `parently/apps/backend` respectively, or use the provided `railway.json` in each app directory.
+3. Add all required environment variables to each service (see table above).
+4. For the database, provision a Neon Postgres instance and set `BACKEND_DATABASE_URL`.
+5. Run migrations on first deploy: `alembic upgrade head` (Railway can run this as a release command).
+6. Set `AUTH_TRUST_HOST=true` on the frontend service.
+7. Add your Railway frontend domain to `ALLOWED_ORIGINS` on the backend service.
+8. Configure Google OAuth: add both `https://parently-ai.com` and your Railway frontend URL to the allowed redirect URIs in Google Cloud Console.
 
-Discovery runs during onboarding or when a child school profile is updated:
-1. Query generation from school name/location.
-2. LLM candidate source discovery.
-3. Site crawl for official pages and feed links.
-4. Deterministic/LLM verification scoring.
-5. Source persistence and integration mapping by child.
+For a step-by-step operational checklist see `deployment.md`.
 
-Daily refresh jobs keep school sources current and re-ingest updated content.
+---
 
-## Connectors and Sources
+## Plans and Pricing
 
-### Official/API-backed connectors
-- Gmail (OAuth)
-- Google Drive (OAuth)
+| Plan | Price | Digest limit | History |
+|---|---|---|---|
+| Free | $0 | 30 lifetime digests | 7 days |
+| Premium | $3/month | Unlimited | 365 days |
 
-### Smart parsing sources (no direct third-party API dependency)
-- ClassDojo email patterns
-- Brightwheel email patterns
-- Kumon email patterns
-- Skyward email patterns
+When free limits are exhausted, the backend returns HTTP 402 and the frontend prompts upgrade.
 
-### Public source ingestion
-- School websites
-- Calendar sources (ICS, RSS/Atom, HTML calendar pages, PDF calendars)
+---
 
-## Digest Pipeline
+## Repository Layout
 
-Digest generation uses a staged LangGraph flow:
-- collect connector and school-source context;
-- classify and map content by child;
-- run retrieval over vector context where applicable;
-- extract actions and dates;
-- compose a per-child daily digest;
-- persist digest, sections, usage, and notification artifacts.
+```
+parently/
+  apps/
+    backend/
+      app.py              # FastAPI entry point
+      config.py
+      dependencies.py
+      routers/            # auth, children, digest, notifications, preferences, …
+      services/           # ingestion, email, billing, discovery, …
+      storage/            # SQLAlchemy models + Alembic migrations
+      agents/             # LangGraph digest pipeline
+      tests/
+      prompts/
+    web/
+      app/                # Next.js App Router pages
+        api/              # Proxy routes → backend
+        dashboard/
+        digest/
+        settings/
+          schedule/       # Digest scheduling UI
+        notifications/
+      components/
+        header.tsx
+        notification-center.tsx
+        daily-digest.tsx
+        …
+      lib/
+      public/
+        manifest.json     # PWA manifest
+        sw.js             # Service worker (offline support)
+```
 
-## Notifications
+---
 
-- Unread-count notification bell in frontend header.
-- Digest-related and system notification types.
-- Read and mark-all-read APIs for notification state management.
+## Contributing
 
-## Billing
+1. Fork the repo and create a feature branch from `main`.
+2. Follow the existing code style — TypeScript strict mode on the frontend, type-annotated Python on the backend.
+3. Add or update tests for any logic changes (`apps/backend/tests/`).
+4. Ensure migrations are additive (no column drops without a data-preservation plan).
+5. Open a pull request with a clear description of the problem and solution.
+6. All CI checks (lint, type-check, migration safety, tests) must pass before merge.
 
-- Stripe checkout creates/updates subscriptions for Premium.
-- Webhook events reconcile entitlement state.
-- Free-to-premium boundary enforcement occurs in backend dependencies.
-- Plan limits are enforced server-side before digest generation.
-
-## Database
-
-- Development default: lightweight local setup for rapid iteration.
-- Production: Neon Postgres with `pgvector`.
-- Schema management via Alembic migrations.
-- Core entities include users, children, sources, digests, entitlements, billing, and notifications.
-
-### Migration reliability policy
-
-- Production schema creation is migration-only (no `create_all()` bootstrap).
-- Every schema change must ship as an Alembic revision.
-- Migration chain must run cleanly from empty DB:
-  - `alembic downgrade base`
-  - `alembic upgrade head`
-- CI enforces migration safety on fresh Postgres via `.github/workflows/migrations.yml`.
-
-### Storage architecture (RAG)
-
-- `documents`: source metadata + canonical text content.
-- `document_chunks`: normalized per-document chunks (`document_id`, `chunk_index`, `chunk_text`).
-- `embeddings`: vector-ready rows linked to chunks:
-  - Postgres: `vector(1536)` (pgvector), `ivfflat` cosine index
-  - Local fallback: JSON/text embedding storage for non-Postgres dev.
-
-## Important API Endpoints
-
-| Area | Method | Path |
-|---|---|---|
-| Health | `GET` | `/healthz` |
-| Auth sync | `POST` | `/api/auth/sync` |
-| Discovery start | `POST` | `/api/sources/discover` |
-| Discovery status | `GET` | `/api/sources/discover/{job_id}` |
-| Child sources | `GET` | `/api/sources/{child_id}` |
-| Confirm source | `POST` | `/api/sources/{source_id}/confirm` |
-| Remove source | `DELETE` | `/api/sources/{source_id}` |
-| Setup status | `GET` | `/api/setup/status` |
-| Billing checkout | `POST` | `/api/billing/create-checkout-session` |
-| Billing webhook | `POST` | `/api/billing/webhook` |
-| Daily digest cron | `POST` | `/api/internal/run-daily-digests` |
-| Refresh sources cron | `POST` | `/api/internal/refresh-school-sources` |
-
-## Production Notes and Common Pitfalls
-
-- `NEXTAUTH_SECRET` must match in frontend and backend.
-- `NEXTAUTH_URL` must not be blank in production.
-- `AUTH_TRUST_HOST=true` is required on Railway.
-- `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, and `STRIPE_WEBHOOK_SECRET` must come from the same Stripe mode (`test` or `live`).
-- `ALLOWED_ORIGINS` must include the actual frontend domain (`https://parently-ai.com`) and any active Railway frontend domain.
-- Backend must bind to `0.0.0.0:$PORT`.
-- Google OAuth allowed origins and redirect URIs must include production and Railway frontend domains.
-- Keep `FRONTEND_APP_URL` aligned with the active production frontend URL.
-
-For operational deployment steps, use `deployment.md` (checklist-only).
+Bug reports and feature requests are welcome via GitHub Issues. For security disclosures, email support@parently-ai.com directly.

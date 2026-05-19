@@ -1,11 +1,11 @@
 {
-  "name": "Parently",
+  "name": "Parently — School Updates for Parents",
   "short_name": "Parently",
-  "description": "Your calm command center for school communications. Support: support@parently-ai.com",
-  "start_url": "/dashboard",
+  "description": "Get a daily digest of your children's school communications",
+  "start_url": "/",
   "display": "standalone",
-  "background_color": "#f5f5f6",
-  "theme_color": "#4f46e5",
+  "background_color": "#ffffff",
+  "theme_color": "#6366f1",
   "orientation": "portrait-primary",
   "icons": [
     {
@@ -22,6 +22,13 @@
     }
   ],
   "categories": ["education", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Today's Digest",
+      "url": "/digest",
+      "description": "View today's school updates"
+    }
+  ],
   "screenshots": [
     {
       "src": "/screenshots/screenshot-wide.png",
