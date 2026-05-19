@@ -123,21 +123,32 @@ Neon Postgres (pgvector)
 
 ## Environment Variables
 
-### Frontend (`apps/web`)
+### Backend (`apps/backend/env.example`)
 
-| Variable | Required | Notes |
-|---|---|---|
-| `BACKEND_URL` | Yes | Backend base URL used by frontend server routes |
-| `NEXTAUTH_SECRET` | Yes | Must exactly match backend `NEXTAUTH_SECRET` |
-| `NEXTAUTH_URL` | Yes | Public frontend URL; use `https://parently-ai.com` in production |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `BACKEND_DATABASE_URL` | Yes | `sqlite:///./parently.db` (dev) or Neon Postgres URI (prod) |
+| `NEXTAUTH_SECRET` | Yes | Must exactly match the frontend value — generate with `openssl rand -hex 32` |
+| `GEMINI_API_KEY` | Yes | Primary LLM — [aistudio.google.com](https://aistudio.google.com/app/apikey) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth for Gmail token refresh |
+| `STRIPE_SECRET_KEY` | Yes | Stripe billing |
+| `STRIPE_WEBHOOK_SECRET` | Yes | Stripe webhook signing |
+| `STRIPE_PRICE_ID` | Yes | $3/month recurring price ID |
+| `SMTP_HOST` / `SMTP_USER` / `SMTP_PASSWORD` | Yes | Outbound email for digest delivery |
+| `CRON_SECRET` | Yes | Header secret for internal cron endpoints |
+| `OPENAI_API_KEY` | Optional | Fallback LLM |
+
+### Frontend (`apps/web/env.example`)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `BACKEND_URL` | Yes | Backend base URL — server-side only |
+| `NEXTAUTH_SECRET` | Yes | Must match backend exactly |
+| `NEXTAUTH_URL` | Yes | Public frontend URL |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth |
 | `AUTH_TRUST_HOST` | Yes | Set `true` on Railway |
-| `GOOGLE_CLIENT_ID` | Yes | Google OAuth web client ID |
-| `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth web client secret |
-| `NEXT_PUBLIC_APPLE_AUTH_ENABLED` | Yes | `true` or `false` feature flag |
-| `APPLE_CLIENT_ID` | Conditional | Required when Apple auth is enabled |
-| `APPLE_CLIENT_SECRET` | Conditional | Required when Apple auth is enabled |
 
-### Backend (`apps/backend`)
+---
 
 | Variable | Required | Notes |
 |---|---|---|
