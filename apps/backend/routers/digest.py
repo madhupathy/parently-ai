@@ -20,7 +20,7 @@ from agents.graph import run_digest
 from dependencies import get_current_user, check_digest_entitlement
 from storage import get_db
 from storage.models import (
-    Digest, DigestJob, LLMUsage, Notification, User, UserEntitlement,
+    Child, Digest, DigestJob, LLMUsage, Notification, User, UserEntitlement,
 )
 
 router = APIRouter()
@@ -303,6 +303,135 @@ def get_digest(
             n.read_at = now
 
         return {"ok": True, "digest": _serialize_digest(digest)}
+
+
+# ── Per-child digests ─────────────────────────────
+
+@router.get("/children/{child_name}")
+def get_child_digests(
+    child_name: str,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Return digest history filtered to a specific child, plus upcoming events and action items.
+
+    Matches digests where items reference the given child_name (case-insensitive).
+    Also returns upcoming events (next 7 days) and pending action items for this child.
+    """
+    import json
+    from datetime import date, timedelta
+
+    cn_lower = child_name.lower()
+    today = date.today()
+    seven_days = today + timedelta(days=7)
+
+    with db.session_scope() as session:
+        # Validate child belongs to user
+        child = (
+            session.query(Child)
+            .filter(Child.user_id == current_user.id)
+            .filter(Child.name.ilike(f"%{child_name}%"))
+            .first()
+        )
+        if not child:
+            return {
+                "ok": False,
+                "error": "Child not found",
+                "digests": [],
+                "upcoming_events": [],
+                "action_items": [],
+            }
+
+        resolved_name = child.name
+        child_id = child.id
+
+        # All user digests ordered by date
+        all_digests = (
+            session.query(Digest)
+            .filter(Digest.user_id == current_user.id)
+            .order_by(Digest.digest_date.desc().nullslast(), Digest.created_at.desc())
+            .all()
+        )
+
+    # Filter to digests that contain items for this child
+    matching_digests: List[Dict[str, Any]] = []
+    upcoming_events: List[Dict[str, Any]] = []
+    action_items: List[Dict[str, Any]] = []
+    seen_event_subjects: set = set()
+    seen_action_subjects: set = set()
+
+    for digest in all_digests:
+        try:
+            items: List[Dict[str, Any]] = json.loads(digest.items_json) if digest.items_json else []
+        except (json.JSONDecodeError, TypeError):
+            items = []
+
+        child_items = [
+            i for i in items
+            if cn_lower in (i.get("child_name") or "").lower()
+            or cn_lower in (i.get("subject") or "").lower()
+        ]
+
+        if not child_items:
+            continue
+
+        matching_digests.append({
+            "id": digest.id,
+            "digest_date": digest.digest_date,
+            "created_at": digest.created_at.isoformat(),
+            "item_count": len(child_items),
+            "preview": (child_items[0].get("subject") or child_items[0].get("body") or "")[:120],
+        })
+
+        # Collect upcoming events and action items from recent digests
+        if digest.digest_date and digest.digest_date >= today.isoformat():
+            for item in child_items:
+                tags = item.get("tags") or []
+                subject = item.get("subject") or ""
+                due_date = item.get("due_date")
+
+                if "event" in tags and subject not in seen_event_subjects:
+                    # Check if due_date is within next 7 days
+                    if due_date:
+                        try:
+                            due = date.fromisoformat(due_date[:10])
+                            if today <= due <= seven_days:
+                                upcoming_events.append({
+                                    "subject": subject,
+                                    "body": (item.get("body") or "")[:200],
+                                    "due_date": due_date,
+                                    "digest_id": digest.id,
+                                    "digest_date": digest.digest_date,
+                                })
+                                seen_event_subjects.add(subject)
+                        except (ValueError, TypeError):
+                            pass
+
+                if "action" in tags and subject not in seen_action_subjects:
+                    action_items.append({
+                        "subject": subject,
+                        "body": (item.get("body") or "")[:200],
+                        "due_date": due_date,
+                        "digest_id": digest.id,
+                        "digest_date": digest.digest_date,
+                    })
+                    seen_action_subjects.add(subject)
+
+    total = len(matching_digests)
+    paginated = matching_digests[offset : offset + limit]
+
+    return {
+        "ok": True,
+        "child_name": resolved_name,
+        "child_id": child_id,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "digests": paginated,
+        "upcoming_events": upcoming_events[:20],
+        "action_items": action_items[:20],
+    }
 
 
 # ── Helpers ───────────────────────────────────────

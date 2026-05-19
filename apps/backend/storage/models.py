@@ -484,6 +484,30 @@ class DiscoveryJob(Base):
         return json.loads(self.result_json) if self.result_json else {}
 
 
+class DigestRule(Base):
+    """Parent-defined priority rules for digest content filtering.
+
+    Examples:
+      - always_important: sender contains 'principal'
+      - never_notify: subject contains 'fundraiser'
+      - tag: body contains 'field trip' → label 'Field Trip'
+    """
+    __tablename__ = "digest_rules"
+    __table_args__ = (
+        Index("ix_digest_rules_user", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    rule_type: Mapped[str] = mapped_column(String(32), nullable=False)  # always_important | never_notify | tag
+    field: Mapped[str] = mapped_column(String(32), nullable=False)      # sender | subject | body
+    pattern: Mapped[str] = mapped_column(String(500), nullable=False)   # substring to match (case-insensitive)
+    label: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # custom tag label
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+
+    user = relationship("User")
+
+
 class SchoolSource(Base):
     """Verified (or pending) school website/calendar source for a child."""
     __tablename__ = "school_sources"

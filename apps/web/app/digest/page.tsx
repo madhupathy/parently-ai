@@ -1,6 +1,7 @@
 "use client"
 
 import { DailyDigest } from "@/components/daily-digest"
+import { DigestSearch } from "@/components/digest-search"
 
 export default function DigestPage() {
   return (
@@ -11,6 +12,7 @@ export default function DigestPage() {
           Review today&apos;s digest and your recent digest history.
         </p>
       </div>
+      <DigestSearch />
       <DailyDigest />
     </div>
   )
