@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 
 from config import get_settings
 from dependencies import verify_cron_secret
 from routers import auth, billing, children, contact, digest, integrations, notifications, preferences, search_profiles, setup, sources, uploads
 from storage import get_db
-from storage.models import User, UserEntitlement
+from storage.models import User, UserEntitlement, UserPreference
 
 logger = logging.getLogger(__name__)
 
@@ -53,31 +55,57 @@ def health() -> Dict[str, bool]:
     return {"ok": True}
 
 
+def _user_digest_due_now(pref: UserPreference, now_utc: datetime) -> bool:
+    """Return True if now_utc is within the same clock-hour as the user's preferred digest time."""
+    tz_name = pref.timezone or "UTC"
+    digest_time_str = pref.digest_time or "07:00"
+    try:
+        user_tz = ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        user_tz = ZoneInfo("UTC")
+
+    now_local = now_utc.astimezone(user_tz)
+    try:
+        hour, minute = [int(p) for p in digest_time_str.split(":")]
+    except (ValueError, AttributeError):
+        hour, minute = 7, 0
+
+    return now_local.hour == hour
+
+
 @app.post("/api/internal/run-daily-digests", dependencies=[Depends(verify_cron_secret)])
 def run_daily_digests() -> Dict[str, Any]:
-    """Cron endpoint: generate digests for all active users (one per day, upsert)."""
+    """Cron endpoint: generate digests for all active users (one per day, upsert).
+
+    Respects each user's preferred digest time and timezone. The cron should be
+    triggered every hour; this handler skips users whose local preferred hour does
+    not match the current UTC time converted to their timezone.
+    """
+    import asyncio
     from datetime import date
     from agents.graph import run_digest
-    from storage.models import Digest, DigestJob, LLMUsage, Notification
+    from storage.models import Child, Digest, DigestJob, LLMUsage, Notification
+    from services.email_delivery import send_digest_email
 
     db = get_db()
     results: List[Dict[str, Any]] = []
     today_str = date.today().isoformat()
+    now_utc = datetime.now(tz=timezone.utc)
 
     with db.session_scope() as session:
-        users = session.query(User).all()
-        user_list = [(u.id, u.email) for u in users]
+        rows = (
+            session.query(User.id, User.email, UserPreference)
+            .outerjoin(UserPreference, UserPreference.user_id == User.id)
+            .all()
+        )
+        user_list = [(r[0], r[1], r[2]) for r in rows]
 
-    for user_id, email in user_list:
+    for user_id, email, pref in user_list:
         try:
-            # Check entitlement
-            with db.session_scope() as session:
-                ent = session.query(UserEntitlement).filter(
-                    UserEntitlement.user_id == user_id
-                ).first()
-                if ent and not ent.premium_active and ent.digests_remaining <= 0:
-                    results.append({"user_id": user_id, "status": "skipped", "reason": "no_digests_remaining"})
-                    continue
+            # Timezone-aware scheduling: skip users whose preferred hour hasn't arrived yet.
+            if pref is not None and not _user_digest_due_now(pref, now_utc):
+                results.append({"user_id": user_id, "status": "skipped", "reason": "not_scheduled_hour"})
+                continue
 
             # Skip if already ran today
             with db.session_scope() as session:
@@ -89,9 +117,31 @@ def run_daily_digests() -> Dict[str, Any]:
                     results.append({"user_id": user_id, "status": "skipped", "reason": "already_ran_today"})
                     continue
 
+            # ----------------------------------------------------------------
+            # Atomic entitlement check-and-decrement via SELECT FOR UPDATE.
+            # This prevents concurrent cron runs from granting extra free digests.
+            # ----------------------------------------------------------------
+            with db.session_scope() as session:
+                ent = (
+                    session.query(UserEntitlement)
+                    .filter(UserEntitlement.user_id == user_id)
+                    .with_for_update()
+                    .first()
+                )
+                if ent and not ent.premium_active and ent.digests_remaining <= 0:
+                    results.append({"user_id": user_id, "status": "skipped", "reason": "no_digests_remaining"})
+                    continue
+
+                # Reserve one digest slot immediately (inside the same lock).
+                # The count is only decremented for free users; premium users are unlimited.
+                if ent and not ent.premium_active and ent.digests_remaining > 0:
+                    ent.digests_remaining -= 1
+                # Session commits (and releases the row lock) on scope exit.
+
             payload = {"email": email, "user_id": user_id}
             result = run_digest(payload)
 
+            email_sent = False
             with db.session_scope() as session:
                 digest_obj = Digest(
                     user_id=user_id,
@@ -115,12 +165,6 @@ def run_daily_digests() -> Dict[str, Any]:
                         estimated_cost_usd=usage.get("estimated_cost_usd", 0.0),
                     ))
 
-                ent = session.query(UserEntitlement).filter(
-                    UserEntitlement.user_id == user_id
-                ).first()
-                if ent and not ent.premium_active and ent.digests_remaining > 0:
-                    ent.digests_remaining -= 1
-
                 # Create notification
                 session.add(Notification(
                     user_id=user_id,
@@ -130,7 +174,27 @@ def run_daily_digests() -> Dict[str, Any]:
                     body="Tap to view your calm school overview for today.",
                 ))
 
-            results.append({"user_id": user_id, "status": "success"})
+                # Collect child names for the email subject
+                children_rows = session.query(Child.name).filter(Child.user_id == user_id).all()
+                child_names = [r[0] for r in children_rows]
+
+            # Send email notification if the user has it enabled
+            wants_email = pref is None or pref.email_notifications
+            if wants_email and email:
+                try:
+                    child_name = child_names[0] if child_names else "Your Child"
+                    digest_payload = {
+                        "digest_markdown": result.get("digest_markdown", ""),
+                        "items_json": result.get("items_json", "[]"),
+                        "digest_date": today_str,
+                    }
+                    email_sent = asyncio.get_event_loop().run_until_complete(
+                        send_digest_email(email, digest_payload, child_name)
+                    )
+                except Exception as email_exc:
+                    logger.warning("Email delivery failed for user %d: %s", user_id, email_exc)
+
+            results.append({"user_id": user_id, "status": "success", "email_sent": email_sent})
         except Exception as exc:
             logger.error("Cron digest failed for user %d: %s", user_id, exc)
             results.append({"user_id": user_id, "status": "failed", "error": str(exc)})

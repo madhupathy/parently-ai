@@ -2,6 +2,30 @@
 
 Parently AI gives parents a calm, actionable daily school digest instead of fragmented messages across email, school websites, and calendars. The platform combines smart source discovery, targeted ingestion, and AI summarization in a production SaaS architecture.
 
+## Quick Start
+
+Five commands to run the full stack locally:
+
+```bash
+# 1. Clone and enter the repo
+git clone https://github.com/your-org/parently.git && cd parently/parently
+
+# 2. Start the backend (Python 3.11+)
+cd apps/backend && python -m venv .venv && .venv/Scripts/Activate.ps1  # Windows
+# source .venv/bin/activate                                              # macOS/Linux
+pip install -r requirements.txt && cp env.example .env
+alembic upgrade head && uvicorn app:app --reload --port 8000
+
+# 3. Start the frontend (Node 18+) — open a new terminal
+cd apps/web && npm install && cp env.example .env.local && npm run dev
+
+# 4. Open the app
+# Frontend: http://localhost:3000
+# Backend API docs: http://localhost:8000/docs
+```
+
+Minimum required `.env` keys for local development: `NEXTAUTH_SECRET`, `GEMINI_API_KEY`, and `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`.
+
 ## Product Overview
 
 Parently AI:
@@ -21,18 +45,54 @@ Parently AI:
 
 ## Architecture
 
+### Stack
+
+| Layer | Technology | Role |
+|---|---|---|
+| Frontend | Next.js 14 (App Router) | PWA, NextAuth, UI |
+| Backend | FastAPI (Python 3.11) | REST API, cron jobs |
+| AI pipeline | LangGraph + Gemini (OpenAI fallback) | Digest generation |
+| Database | PostgreSQL + pgvector (Neon) | Data + vector search |
+| Auth | NextAuth + JWT (shared secret) | Session management |
+| Billing | Stripe Checkout + Webhooks | Subscriptions |
+| Email | aiosmtplib + Jinja2 | Digest delivery |
+| Hosting | Railway | Frontend + backend |
+
 ### High-level system
 
 ```
-Next.js frontend (apps/web)
-  -> NextAuth session + JWT minting
-  -> internal API proxy routes (/api/*)
-  -> FastAPI backend (apps/backend)
-       -> LangGraph digest workflow
-       -> discovery + ingestion services
-       -> Postgres + pgvector (Neon)
-       -> Stripe billing + webhooks
+Browser / PWA
+  └─ Next.js frontend (apps/web)
+       ├─ NextAuth  →  Google / Apple OAuth
+       ├─ JWT bearer tokens  →  FastAPI backend
+       └─ /api/* proxy routes
+
+FastAPI backend (apps/backend)
+  ├─ Auth sync + entitlement enforcement
+  ├─ School discovery + source verification
+  ├─ Connector ingestion (Gmail, Drive, ICS, RSS, PDF)
+  ├─ LangGraph digest pipeline
+  │    ├─ Collect + classify content per child
+  │    ├─ RAG retrieval over pgvector
+  │    ├─ Action / date extraction (Gemini)
+  │    └─ Compose per-child sections
+  ├─ Digest persistence + email delivery (aiosmtplib)
+  ├─ Notification fan-out
+  └─ Stripe billing + webhooks
+
+Neon Postgres (pgvector)
+  ├─ Core entities: users, children, sources, digests
+  ├─ Entitlements + billing state
+  └─ Vector embeddings (document_chunks + embeddings)
 ```
+
+### Daily digest cron flow
+
+1. Railway triggers `POST /api/internal/run-daily-digests` every hour.
+2. For each user the handler checks whether `now_utc` matches their preferred `digest_time` in their local `timezone` (stored in `user_preferences`).
+3. Entitlement check-and-decrement runs inside a single `SELECT FOR UPDATE` transaction to prevent race conditions.
+4. The LangGraph pipeline generates the digest; the result is persisted and a notification is created.
+5. If the user has `email_notifications` enabled, an HTML email is sent via `send_digest_email`.
 
 ### Core backend domains
 - Auth/session sync and entitlement checks
