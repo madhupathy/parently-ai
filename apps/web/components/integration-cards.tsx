@@ -61,8 +61,8 @@ export function IntegrationCards() {
                   : model.gmailAuthorized
                     ? "Gmail OAuth is granted, but connector credentials are incomplete. Reconnect Google to refresh consent."
                     : googleSignedIn
-                      ? "You’re signed in with Google. Grant Gmail access to include school emails in digests."
-                      : "Connect Gmail to include school emails in digests.",
+                      ? "You’re signed in with Google. Grant Gmail access to include school emails in digests. Heads up: you’ll see Google’s “unverified app” screen (we’re in invite-only beta) — click Advanced → Continue to proceed."
+                      : "Connect Gmail to include school emails in digests. Heads up: you’ll see Google’s “unverified app” screen (we’re in invite-only beta) — click Advanced → Continue to proceed.",
                 actionLabel: model.gmailConnected
                   ? "Connected"
                   : model.gmailReauthorizationRequired
@@ -84,8 +84,8 @@ export function IntegrationCards() {
                 : model.driveAuthorized
                   ? "Drive OAuth granted. Set a folder in integration config to finish connector setup."
                   : model.googleLogin
-                    ? "You’re signed in with Google. Grant Drive access to include documents in digests."
-                    : "Connect Google Drive to include permission slips and documents.",
+                    ? "You’re signed in with Google. Grant Drive access to include documents in digests. Same beta warning as Gmail — click Advanced → Continue."
+                    : "Connect Google Drive to include permission slips and documents. Same beta warning as Gmail — click Advanced → Continue.",
               actionLabel: model.driveConnected
                 ? "Connected"
                 : model.driveReauthorizationRequired

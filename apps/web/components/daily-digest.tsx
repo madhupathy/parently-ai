@@ -465,6 +465,11 @@ export function DailyDigest() {
                   <p className="text-sm text-muted-foreground">
                     No digest sources are connected yet, so we could not find school updates.
                   </p>
+                  <p className="text-xs text-muted-foreground/80 max-w-sm mx-auto">
+                    Connecting Gmail will show a Google “unverified app” warning — Parently is in
+                    invite-only beta. Click <strong>Advanced → Continue</strong> on that screen to
+                    grant access; you’ll only see it once.
+                  </p>
                   <div className="flex flex-wrap justify-center gap-2 pt-1">
                     <Button asChild size="sm" variant="outline">
                       <Link href="/settings?tab=integrations">Connect Gmail</Link>

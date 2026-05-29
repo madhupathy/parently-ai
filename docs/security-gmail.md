@@ -1,7 +1,11 @@
 # Gmail / Drive OAuth Scope Risk Memo
 
 Date: 2026-05-29
-Status: Decision needed before public launch
+Status: **DECISION (2026-05-29): Option #1 — invite-only beta with manually-added Google test users.**
+
+The "Google hasn't verified this app" / "Advanced → Continue" screen is therefore expected behaviour for every new user until either (a) we add them under Test users in Google Cloud Console, and (b) they click through the warning once. The in-app integration cards and dashboard empty state now mention this so users aren't surprised.
+
+This stays valid until we have ~$2k MRR or pivot to a non-restricted-scope architecture (option #2 below).
 
 ## TL;DR
 

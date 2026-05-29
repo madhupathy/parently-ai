@@ -6,6 +6,8 @@
 
 ---
 
+> **Status: invite-only beta.** Parently uses Google's `gmail.readonly` and `drive.readonly` scopes, which are "restricted" under Google's API policy. The app is in OAuth "testing" mode (≤100 test users) and not yet verified, so signing in shows Google's "unverified app" warning — click **Advanced → Continue** to proceed. To request beta access, email `madhupathy@gmail.com`. See [`docs/security-gmail.md`](docs/security-gmail.md) for why and what the longer-term verification path looks like.
+
 ## The Problem
 
 Your child's school sends emails to five different addresses, posts events on an unmaintained website, shares PDFs through a class app, and texts last-minute reminders at 7 AM. You miss the field-trip permission deadline. Again.
