@@ -1,0 +1,41 @@
+name: Weekly ops report
+
+on:
+  schedule:
+    # 09:00 UTC every Monday
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend deps (slim)
+        working-directory: apps/backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyyaml
+
+      - name: Send weekly report
+        working-directory: apps/backend
+        env:
+          BACKEND_DATABASE_URL: ${{ secrets.BACKEND_DATABASE_URL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          SMTP_FROM_NAME: Parently Ops
+          SMTP_SECURE: ${{ secrets.SMTP_SECURE }}
+          REPORT_RECIPIENT_EMAIL: madhupathy@gmail.com
+          INFRA_COSTS_YAML: config/infra_costs.yaml
+          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
+        run: python scripts/weekly_report.py

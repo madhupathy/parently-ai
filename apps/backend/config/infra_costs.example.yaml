@@ -1,0 +1,11 @@
+# Monthly infrastructure costs (USD per month).
+# Update this when bills arrive (most providers don't offer a billing API).
+# Copy to infra_costs.yaml and edit. The weekly report divides by 4 for weekly burn.
+
+railway_backend: 5.00      # backend service (estimated)
+railway_frontend: 5.00     # frontend service (estimated)
+neon_postgres: 0.00        # free tier through ~3GB
+domain_parently_ai: 1.25   # ~$15/year amortized
+gemini_api: 0.00           # billed per-token elsewhere — see LLM cost in report body
+smtp_provider: 0.00        # depends on volume
+stripe_fees: 0.00          # 2.9% + 30¢ per charge — only meaningful when MRR > 0
