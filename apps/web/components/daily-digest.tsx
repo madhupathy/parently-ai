@@ -125,6 +125,10 @@ export function DailyDigest() {
   const [setupLoading, setSetupLoading] = useState(true)
   const [childrenCount, setChildrenCount] = useState(0)
   const [childrenLoading, setChildrenLoading] = useState(true)
+  const [diagnostic, setDiagnostic] = useState<{
+    gmail?: { row_present: boolean; status: string | null; blocking_reason: string; blocking_reason_detail: string }
+    google_drive?: { row_present: boolean; status: string | null; blocking_reason: string; blocking_reason_detail: string }
+  } | null>(null)
   const [setupModal, setSetupModal] = useState<SetupModalState>({
     open: false,
     title: "",
@@ -147,6 +151,17 @@ export function DailyDigest() {
       console.error("[daily-digest] dashboard fetch failed", err)
     } finally {
       setInitialLoad(false)
+    }
+  }, [])
+
+  const fetchDiagnostic = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/diagnostic", { cache: "no-store" })
+      if (!res.ok) return
+      const data = await res.json()
+      if (data.ok) setDiagnostic({ gmail: data.gmail, google_drive: data.google_drive })
+    } catch (err) {
+      console.error("[daily-digest] diagnostic fetch failed", err)
     }
   }, [])
 
@@ -189,7 +204,8 @@ export function DailyDigest() {
   useEffect(() => {
     fetchSetupStatus()
     fetchChildrenCount()
-  }, [fetchSetupStatus, fetchChildrenCount])
+    fetchDiagnostic()
+  }, [fetchSetupStatus, fetchChildrenCount, fetchDiagnostic])
 
   useEffect(() => {
     const onChildrenUpdated = () => {
@@ -465,11 +481,22 @@ export function DailyDigest() {
                   <p className="text-sm text-muted-foreground">
                     No digest sources are connected yet, so we could not find school updates.
                   </p>
-                  <p className="text-xs text-muted-foreground/80 max-w-sm mx-auto">
-                    Connecting Gmail will show a Google “unverified app” warning — Parently is in
-                    invite-only beta. Click <strong>Advanced → Continue</strong> on that screen to
-                    grant access; you’ll only see it once.
-                  </p>
+                  {diagnostic?.gmail && diagnostic.gmail.blocking_reason !== "ready" ? (
+                    <div className="mx-auto max-w-md rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-left">
+                      <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                        Why Gmail isn’t connected (status: {diagnostic.gmail.status || "n/a"})
+                      </p>
+                      <p className="mt-0.5 text-xs text-amber-700/90 dark:text-amber-300/90">
+                        {diagnostic.gmail.blocking_reason_detail}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground/80 max-w-sm mx-auto">
+                      Connecting Gmail will show a Google “unverified app” warning — Parently is in
+                      invite-only beta. Click <strong>Advanced → Continue</strong> on that screen to
+                      grant access; you’ll only see it once.
+                    </p>
+                  )}
                   <div className="flex flex-wrap justify-center gap-2 pt-1">
                     <Button asChild size="sm" variant="outline">
                       <Link href="/settings?tab=integrations">Connect Gmail</Link>

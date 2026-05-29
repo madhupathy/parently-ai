@@ -311,3 +311,103 @@ def complete_onboarding(current_user: User = Depends(get_current_user)) -> Dict[
         if user:
             user.onboarding_complete = True
     return {"ok": True}
+
+
+# ── Diagnostic ───────────────────────────────────
+#
+# The dashboard "no digest sources connected" empty state used to give no signal
+# about *why* the backend considered Gmail/Drive disconnected. This endpoint
+# surfaces per-field OAuth state so the user (and Claude) can see the actual
+# blocker in one glance instead of tracing through five layers of code.
+
+_BLOCKING_REASONS = {
+    "no_integration_row": "No integration row exists. Sign in with Google and grant the requested scope.",
+    "missing_scope": "Google did not include this scope in the consent — re-sign-in with the scope in the request.",
+    "missing_refresh_token": "Google did not return a refresh_token. Revoke the app at myaccount.google.com/permissions and sign in again (forces fresh consent).",
+    "missing_access_token": "No access_token persisted. Re-sign-in.",
+    "missing_client_id_on_backend": "GOOGLE_CLIENT_ID env var is not set on the backend service. Set it in Railway and redeploy the backend.",
+    "missing_client_secret_on_backend": "GOOGLE_CLIENT_SECRET env var is not set on the backend service. Set it in Railway and redeploy the backend.",
+    "missing_token_uri": "token_uri is missing — frontend hook should hardcode oauth2.googleapis.com/token.",
+    "ready": "All required OAuth fields are present.",
+}
+
+
+def _diagnose_one(integration: Optional[UserIntegration], scope: str) -> Dict[str, Any]:
+    if integration is None:
+        return {
+            "row_present": False,
+            "status": None,
+            "fields": {
+                "access_token": False,
+                "refresh_token": False,
+                "token_uri": False,
+                "client_id": False,
+                "client_secret": False,
+                "scope": False,
+            },
+            "blocking_reason": "no_integration_row",
+            "blocking_reason_detail": _BLOCKING_REASONS["no_integration_row"],
+        }
+
+    creds: Dict[str, Any] = {}
+    if integration.credentials_json:
+        try:
+            creds = json.loads(integration.credentials_json) or {}
+        except Exception:
+            creds = {}
+
+    granted = (integration.granted_scopes or "").split(" ")
+    has_scope = scope in granted
+    fields = {
+        "access_token": bool(creds.get("access_token") or creds.get("token")),
+        "refresh_token": bool(creds.get("refresh_token")),
+        "token_uri": bool(creds.get("token_uri")),
+        "client_id": bool(creds.get("client_id")),
+        "client_secret": bool(creds.get("client_secret")),
+        "scope": has_scope,
+    }
+
+    # Order matters: report the first thing the user can fix.
+    if not has_scope:
+        reason = "missing_scope"
+    elif not fields["access_token"]:
+        reason = "missing_access_token"
+    elif not fields["refresh_token"]:
+        reason = "missing_refresh_token"
+    elif not fields["client_id"]:
+        reason = "missing_client_id_on_backend"
+    elif not fields["client_secret"]:
+        reason = "missing_client_secret_on_backend"
+    elif not fields["token_uri"]:
+        reason = "missing_token_uri"
+    else:
+        reason = "ready"
+
+    return {
+        "row_present": True,
+        "status": integration.status,
+        "fields": fields,
+        "blocking_reason": reason,
+        "blocking_reason_detail": _BLOCKING_REASONS[reason],
+    }
+
+
+@router.get("/diagnostic")
+def integration_diagnostic(current_user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    """Per-field OAuth state for Gmail/Drive — purely diagnostic, no secrets returned."""
+    with db.session_scope() as session:
+        gmail_row = (
+            session.query(UserIntegration)
+            .filter(UserIntegration.user_id == current_user.id, UserIntegration.provider == "gmail")
+            .first()
+        )
+        drive_row = (
+            session.query(UserIntegration)
+            .filter(UserIntegration.user_id == current_user.id, UserIntegration.provider == "google_drive")
+            .first()
+        )
+        return {
+            "ok": True,
+            "gmail": _diagnose_one(gmail_row, GMAIL_SCOPE),
+            "google_drive": _diagnose_one(drive_row, DRIVE_SCOPE),
+        }
